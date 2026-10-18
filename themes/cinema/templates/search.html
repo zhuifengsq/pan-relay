@@ -7,10 +7,11 @@
   <meta name="description" content="{{ seo_meta.description }}">
   {% if seo_meta.keywords %}<meta name="keywords" content="{{ seo_meta.keywords }}">{% endif %}
   <meta name="robots" content="{{ seo_meta.robots }}">
-  <link rel="stylesheet" href="/themes/cinema/assets/css/theme.css?v=1.1.0">
-  <link rel="icon" href="/themes/cinema/assets/preview.webp" type="image/webp">
+  <link rel="stylesheet" href="/themes/cinema/assets/css/theme.css?v=1.1.1">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
+  <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
   <link rel="stylesheet" href="/themes/cinema/assets/css/request-modal.css?v=1.0.0">
-  <link rel="stylesheet" href="/themes/cinema/assets/css/search.css?v=1.0.6">
+  <link rel="stylesheet" href="/themes/cinema/assets/css/search.css?v=1.0.7">
 </head>
 <body>
   {% set header_search_href = '#resultsSearchInput' %}
@@ -164,6 +165,6 @@
     });
   </script>
   <script src="/themes/cinema/assets/js/request_modal.js?v=1.0.0"></script>
-  <script src="/themes/cinema/assets/js/search.js?v=1.0.3"></script>
+  <script src="/themes/cinema/assets/js/search.js?v=1.0.4"></script>
 </body>
 </html>

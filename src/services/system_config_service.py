@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from src.db.system_configs import get_config_value, set_config_value
 from src.utils.netdisk_utils import (
@@ -275,31 +275,42 @@ def save_pc_qr_code_config(enabled: bool) -> bool:
 def get_frontend_github_config() -> Dict[str, Any]:
     raw_value = get_config_value(ENABLE_FRONTEND_GITHUB_KEY)
     if not raw_value:
-        return {"enabled": True, "footer_text": DEFAULT_FRONTEND_FOOTER_TEXT}
+        return {"enabled": True, "footer_text": DEFAULT_FRONTEND_FOOTER_TEXT, "footer_enabled": True}
 
     try:
         parsed = json.loads(raw_value)
     except (TypeError, json.JSONDecodeError):
         logger.warning("前台GitHub展示配置格式无效，已回退到默认值")
-        return {"enabled": True, "footer_text": DEFAULT_FRONTEND_FOOTER_TEXT}
+        return {"enabled": True, "footer_text": DEFAULT_FRONTEND_FOOTER_TEXT, "footer_enabled": True}
 
     if not isinstance(parsed, dict):
-        return {"enabled": True, "footer_text": DEFAULT_FRONTEND_FOOTER_TEXT}
+        return {"enabled": True, "footer_text": DEFAULT_FRONTEND_FOOTER_TEXT, "footer_enabled": True}
     footer_text = parsed.get("footer_text", DEFAULT_FRONTEND_FOOTER_TEXT)
     if not isinstance(footer_text, str):
         footer_text = DEFAULT_FRONTEND_FOOTER_TEXT
     elif footer_text == LEGACY_DEFAULT_FRONTEND_FOOTER_TEXT:
         footer_text = DEFAULT_FRONTEND_FOOTER_TEXT
-    return {"enabled": bool(parsed.get("enabled", True)), "footer_text": footer_text}
+    return {
+        "enabled": bool(parsed.get("enabled", True)),
+        "footer_text": footer_text,
+        "footer_enabled": bool(parsed.get("footer_enabled", True)),
+    }
 
 
 def is_frontend_github_enabled() -> bool:
     return get_frontend_github_config()["enabled"]
 
 
-def save_frontend_github_config(enabled: bool) -> bool:
+def is_frontend_footer_text_enabled() -> bool:
+    return get_frontend_github_config().get("footer_enabled", True)
+
+
+def save_frontend_github_config(enabled: Optional[bool] = None, footer_enabled: Optional[bool] = None) -> bool:
     config = get_frontend_github_config()
-    config["enabled"] = bool(enabled)
+    if enabled is not None:
+        config["enabled"] = bool(enabled)
+    if footer_enabled is not None:
+        config["footer_enabled"] = bool(footer_enabled)
     return set_config_value(
         ENABLE_FRONTEND_GITHUB_KEY,
         config,
@@ -312,48 +323,88 @@ def save_frontend_footer_text(footer_text: str) -> bool:
     return set_config_value(ENABLE_FRONTEND_GITHUB_KEY, config)
 
 
-def get_frontend_disclaimer_text() -> str:
+def get_frontend_disclaimer_config() -> Dict[str, Any]:
     raw_value = get_config_value(FRONTEND_DISCLAIMER_TEXT_KEY)
     if raw_value is None:
-        return DEFAULT_FRONTEND_DISCLAIMER_TEXT
+        return {"enabled": True, "text": DEFAULT_FRONTEND_DISCLAIMER_TEXT}
     try:
         parsed = json.loads(raw_value)
     except (TypeError, json.JSONDecodeError):
         logger.warning("前台免责声明配置格式无效，已回退到默认值")
-        return DEFAULT_FRONTEND_DISCLAIMER_TEXT
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("text"), str):
+        return {"enabled": True, "text": DEFAULT_FRONTEND_DISCLAIMER_TEXT}
+    if not isinstance(parsed, dict):
         logger.warning("前台免责声明配置格式无效，已回退到默认值")
-        return DEFAULT_FRONTEND_DISCLAIMER_TEXT
-    return parsed["text"]
+        return {"enabled": True, "text": DEFAULT_FRONTEND_DISCLAIMER_TEXT}
+    text = parsed.get("text", DEFAULT_FRONTEND_DISCLAIMER_TEXT)
+    if not isinstance(text, str):
+        text = DEFAULT_FRONTEND_DISCLAIMER_TEXT
+    return {
+        "enabled": bool(parsed.get("enabled", True)),
+        "text": text,
+    }
+
+
+def get_frontend_disclaimer_text() -> str:
+    return get_frontend_disclaimer_config()["text"]
+
+
+def is_frontend_disclaimer_enabled() -> bool:
+    return get_frontend_disclaimer_config()["enabled"]
+
+
+def save_frontend_disclaimer_config(enabled: Optional[bool] = None, text: Optional[str] = None) -> bool:
+    config = get_frontend_disclaimer_config()
+    if enabled is not None:
+        config["enabled"] = bool(enabled)
+    if text is not None:
+        config["text"] = str(text or "").strip()
+    return set_config_value(FRONTEND_DISCLAIMER_TEXT_KEY, config)
 
 
 def save_frontend_disclaimer_text(disclaimer_text: str) -> bool:
-    return set_config_value(
-        FRONTEND_DISCLAIMER_TEXT_KEY,
-        {"text": str(disclaimer_text or "").strip()},
-    )
+    return save_frontend_disclaimer_config(text=disclaimer_text)
 
 
-def get_frontend_copyright_text() -> str:
+def get_frontend_copyright_config() -> Dict[str, Any]:
     raw_value = get_config_value(FRONTEND_COPYRIGHT_TEXT_KEY)
     if raw_value is None:
-        return DEFAULT_FRONTEND_COPYRIGHT_TEXT
+        return {"enabled": True, "text": DEFAULT_FRONTEND_COPYRIGHT_TEXT}
     try:
         parsed = json.loads(raw_value)
     except (TypeError, json.JSONDecodeError):
         logger.warning("前台版权信息配置格式无效，已回退到默认值")
-        return DEFAULT_FRONTEND_COPYRIGHT_TEXT
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("text"), str):
+        return {"enabled": True, "text": DEFAULT_FRONTEND_COPYRIGHT_TEXT}
+    if not isinstance(parsed, dict):
         logger.warning("前台版权信息配置格式无效，已回退到默认值")
-        return DEFAULT_FRONTEND_COPYRIGHT_TEXT
-    return parsed["text"]
+        return {"enabled": True, "text": DEFAULT_FRONTEND_COPYRIGHT_TEXT}
+    text = parsed.get("text", DEFAULT_FRONTEND_COPYRIGHT_TEXT)
+    if not isinstance(text, str):
+        text = DEFAULT_FRONTEND_COPYRIGHT_TEXT
+    return {
+        "enabled": bool(parsed.get("enabled", True)),
+        "text": text,
+    }
+
+
+def get_frontend_copyright_text() -> str:
+    return get_frontend_copyright_config()["text"]
+
+
+def is_frontend_copyright_enabled() -> bool:
+    return get_frontend_copyright_config()["enabled"]
+
+
+def save_frontend_copyright_config(enabled: Optional[bool] = None, text: Optional[str] = None) -> bool:
+    config = get_frontend_copyright_config()
+    if enabled is not None:
+        config["enabled"] = bool(enabled)
+    if text is not None:
+        config["text"] = str(text or "").strip()
+    return set_config_value(FRONTEND_COPYRIGHT_TEXT_KEY, config)
 
 
 def save_frontend_copyright_text(copyright_text: str) -> bool:
-    return set_config_value(
-        FRONTEND_COPYRIGHT_TEXT_KEY,
-        {"text": str(copyright_text or "").strip()},
-    )
+    return save_frontend_copyright_config(text=copyright_text)
 
 
 def get_resource_request_config() -> Dict[str, bool]:

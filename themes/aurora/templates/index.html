@@ -7,8 +7,8 @@
   <meta name="description" content="{{ seo_meta.description }}">
   {% if seo_meta.keywords %}<meta name="keywords" content="{{ seo_meta.keywords }}">{% endif %}
   <meta name="robots" content="{{ seo_meta.robots }}">
-  <link rel="icon" href="/themes/aurora/assets/favicon.svg" type="image/svg+xml">
-  <link rel="alternate icon" href="/themes/aurora/assets/favicon.ico" type="image/x-icon">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
+  <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
   <link rel="stylesheet" href="/themes/aurora/assets/css/theme.css?v=1.0.1">
   <link rel="stylesheet" href="/themes/aurora/assets/css/request-modal.css?v=1.0.0">
   <style>
@@ -232,8 +232,8 @@
 
   <footer class="footer">
     {% include "_friend_links.html" %}
-    <p>{{ frontend_footer_text }}</p>
-    {% if frontend_copyright_text %}<p class="frontend-copyright-text">{{ frontend_copyright_text }}</p>{% endif %}
+    {% if enable_frontend_footer_text and frontend_footer_text %}<p>{{ frontend_footer_text }}</p>{% endif %}
+    {% if enable_frontend_copyright and frontend_copyright_text %}<p class="frontend-copyright-text">{{ frontend_copyright_text }}</p>{% endif %}
   </footer>
 
   {% include "aurora/templates/_request_modal.html" %}

@@ -279,13 +279,86 @@ class SystemConfigPagesTest(unittest.TestCase):
         self.assertIn("前台 Web 界面配置", response.text)
         self.assertIn("data-frontend-tab-target=\"appearance\"", response.text)
         self.assertIn("data-frontend-tab-target=\"strategies\"", response.text)
+        self.assertIn("data-frontend-tab-target=\"seo\"", response.text)
         self.assertIn("tab-pane-appearance", response.text)
         self.assertIn("tab-pane-strategies", response.text)
+        self.assertIn("tab-pane-seo", response.text)
+
+        # 验证 SEO Tab 渲染：包含开关，不包含已移除的收录复选框
+        self.assertIn("seoAnnouncementEnabled", response.text)
+        self.assertIn("seoFriendLinksEnabled", response.text)
+        self.assertIn("toggleAnnouncementState()", response.text)
+        self.assertIn("toggleFriendLinksState()", response.text)
+        self.assertNotIn("seoSearchAllowIndexing", response.text)
+        self.assertNotIn("允许搜索引擎收录搜索结果页", response.text)
 
         # 访问策略 Tab
         resp_strategies = self.client.get("/admin/frontend-config?tab=strategies")
         self.assertEqual(200, resp_strategies.status_code)
         self.assertIn("tab-pane-strategies", resp_strategies.text)
+
+    def test_frontend_seo_config_api(self):
+        # 1. 获取 SEO 配置
+        get_resp = self.client.get("/admin/api/frontend-seo-config")
+        self.assertEqual(200, get_resp.status_code)
+        data = get_resp.get_json()
+        self.assertTrue(data.get("success"))
+        self.assertIn("home", data.get("config", {}))
+
+        # 2. 更新公告与友情链接开关状态（即使不传递 allow_indexing 也应默认 True 且成功）
+        update_payload = {
+            "announcement": {
+                "enabled": False,
+                "text": "测试站点公告内容"
+            },
+            "friend_links": {
+                "enabled": True,
+                "items": [{"name": "测试友链", "url": "https://example.com"}]
+            }
+        }
+        put_resp = self.client.put("/admin/api/frontend-seo-config", json=update_payload)
+        self.assertEqual(200, put_resp.status_code)
+        put_data = put_resp.get_json()
+        self.assertTrue(put_data.get("success"))
+
+        # 3. 再次获取验证已持久化
+        verify_resp = self.client.get("/admin/api/frontend-seo-config")
+        verify_data = verify_resp.get_json()
+        cfg = verify_data.get("config", {})
+        self.assertFalse(cfg.get("announcement", {}).get("enabled"))
+        self.assertEqual("测试站点公告内容", cfg.get("announcement", {}).get("text"))
+        self.assertTrue(cfg.get("friend_links", {}).get("enabled"))
+        self.assertTrue(cfg.get("search", {}).get("allow_indexing"))
+
+    def test_frontend_footer_copyright_disclaimer_switches(self):
+        self.client.set_cookie("token", self.token)
+
+        # 1. 页脚文字与开关测试
+        resp = self.client.put("/admin/api/frontend-github-config", json={"footer_enabled": False, "footer_text": "自定义页脚"})
+        self.assertEqual(200, resp.status_code)
+        get_resp = self.client.get("/admin/api/frontend-github-config")
+        self.assertEqual(200, get_resp.status_code)
+        self.assertFalse(get_resp.get_json().get("footer_enabled"))
+        self.assertEqual("自定义页脚", get_resp.get_json().get("footer_text"))
+
+        # 2. 版权信息与开关测试
+        resp = self.client.put("/admin/api/frontend-copyright-config", json={"enabled": False, "copyright_text": "自定义版权"})
+        self.assertEqual(200, resp.status_code)
+        get_resp = self.client.get("/admin/api/frontend-copyright-config")
+        self.assertEqual(200, get_resp.status_code)
+        self.assertFalse(get_resp.get_json().get("enabled"))
+        self.assertEqual("自定义版权", get_resp.get_json().get("copyright_text"))
+
+        # 3. 免责声明文本持久化测试（无开关，按文本内容常驻生效）
+        resp = self.client.put("/admin/api/frontend-disclaimer-config", json={"disclaimer_text": "自定义免责声明"})
+        self.assertEqual(200, resp.status_code)
+        get_resp = self.client.get("/admin/api/frontend-disclaimer-config")
+        self.assertEqual(200, get_resp.status_code)
+        self.assertEqual("自定义免责声明", get_resp.get_json().get("disclaimer_text"))
+
+        # 4. 恢复默认/开启开关
+        self.client.put("/admin/api/frontend-github-config", json={"footer_enabled": True})
+        self.client.put("/admin/api/frontend-copyright-config", json={"enabled": True})
 
     def test_system_config_page_renders(self):
         response = self.client.get("/admin/system-config")

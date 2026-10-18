@@ -8,10 +8,10 @@
   <meta name="description" content="{{ seo_meta.description }}">
   {% if seo_meta.keywords %}<meta name="keywords" content="{{ seo_meta.keywords }}">{% endif %}
   <meta name="robots" content="{{ seo_meta.robots }}">
-  <link rel="icon" href="/themes/aurora/assets/favicon.svg" type="image/svg+xml">
-  <link rel="alternate icon" href="/themes/aurora/assets/favicon.ico" type="image/x-icon">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
+  <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
   <link rel="stylesheet" href="/themes/aurora/assets/css/theme.css?v=1.0.1">
-  <link rel="stylesheet" href="/themes/aurora/assets/css/results.css?v=1.0.3">
+  <link rel="stylesheet" href="/themes/aurora/assets/css/results.css?v=1.0.4">
   <link rel="stylesheet" href="/themes/aurora/assets/css/request-modal.css?v=1.0.0">
   <style>
     /* 顶部通栏网格对齐：使搜索框与下方内容列表（serp-left）在左侧垂直精准对齐，消除右偏 */
@@ -72,19 +72,28 @@
       flex-wrap: nowrap !important;
       overflow-x: auto !important;
       overflow-y: hidden !important;
+      -webkit-overflow-scrolling: touch !important;
       scrollbar-width: none !important;
-      gap: 6px !important;
-      padding: 4px 0 !important;
+      gap: 8px !important;
+      padding: 4px 2px 8px 2px !important;
       margin-bottom: 12px !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
     }
 
     .serp-tabs::-webkit-scrollbar {
       display: none !important;
+      width: 0 !important;
+      height: 0 !important;
     }
 
     .source-chip {
       white-space: nowrap !important;
+      flex: 0 0 auto !important;
       flex-shrink: 0 !important;
+      flex-grow: 0 !important;
+      min-width: max-content !important;
+      width: auto !important;
       display: inline-flex !important;
       align-items: center !important;
       justify-content: center !important;
@@ -93,6 +102,7 @@
       padding: 0 12px !important;
       font-size: 13px !important;
       line-height: 1 !important;
+      border-radius: 999px !important;
     }
 
     .source-chip img {
@@ -100,6 +110,64 @@
       height: 15px !important;
       flex-shrink: 0 !important;
       display: inline-block !important;
+    }
+
+    /* 移动端分页器居中与自适应，防止下一页溢出看不见 */
+    @media (max-width: 720px) {
+      .serp-pagination {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        gap: 5px !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        margin: 24px 0 16px !important;
+        padding: 4px 6px 12px !important;
+      }
+
+      .serp-pagination::-webkit-scrollbar {
+        display: none !important;
+      }
+
+      .serp-pagination button,
+      .serp-pagination .pager-page {
+        min-width: 32px !important;
+        width: auto !important;
+        height: 34px !important;
+        padding: 0 8px !important;
+        font-size: 12.5px !important;
+        border-radius: 8px !important;
+        flex: 0 0 auto !important;
+      }
+
+      .serp-pagination .pager-nav {
+        min-width: 52px !important;
+        width: auto !important;
+        padding: 0 10px !important;
+        font-size: 12.5px !important;
+        flex: 0 0 auto !important;
+      }
+
+      .serp-pagination span {
+        min-width: 16px !important;
+        height: 34px !important;
+        flex: 0 0 auto !important;
+      }
+
+      /* 移动端卡片无封面海报时平铺整行，避免占位灰块 */
+      .serp-item:not(.has-poster) {
+        grid-template-columns: 1fr !important;
+      }
+
+      .serp-item:not(.has-poster) .serp-item__poster {
+        display: none !important;
+      }
     }
 
     /* 卡片专属转存操作按钮 */
@@ -293,6 +361,7 @@
       </section>
       {% endif %}
 
+      {% if frontend_disclaimer_text %}
       <section class="related-card notice-card">
         <h2>
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -303,6 +372,7 @@
         </h2>
         <p class="disclaimer-config-text">{{ frontend_disclaimer_text }}</p>
       </section>
+      {% endif %}
 
       <!-- 侧边栏求片卡片 -->
       {% if enable_resource_request %}
@@ -329,8 +399,8 @@
 
   <footer class="serp-footer">
     {% include "_friend_links.html" %}
-    <p>{{ frontend_footer_text }}</p>
-    {% if frontend_copyright_text %}<p class="frontend-copyright-text">{{ frontend_copyright_text }}</p>{% endif %}
+    {% if enable_frontend_footer_text and frontend_footer_text %}<p>{{ frontend_footer_text }}</p>{% endif %}
+    {% if enable_frontend_copyright and frontend_copyright_text %}<p class="frontend-copyright-text">{{ frontend_copyright_text }}</p>{% endif %}
   </footer>
 
   {% include "aurora/templates/_request_modal.html" %}
@@ -390,7 +460,7 @@
     window.HOT_SEARCH_WORDS = {{ hot_search_words | tojson }};
   </script>
   <script src="/themes/aurora/assets/js/request_modal.js?v=1.0.0"></script>
-  <script src="/themes/aurora/assets/js/theme_aurora.js?v=1.0.3"></script>
+  <script src="/themes/aurora/assets/js/theme_aurora.js?v=1.0.4"></script>
 </body>
 
 </html>

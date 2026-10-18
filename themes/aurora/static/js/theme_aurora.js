@@ -147,6 +147,7 @@
   }
 
   // 4. Tab 切换与过滤
+  // 4. Tab 切换与过滤
   function bindTabs() {
     sourceChips.forEach((chip) => {
       chip.addEventListener("click", () => {
@@ -155,6 +156,9 @@
         currentDriveFilter = chip.dataset.drive || "";
         currentPage = 1;
         renderResults();
+        try {
+          chip.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        } catch (e) {}
       });
     });
   }
@@ -172,15 +176,30 @@
     serpPagination.classList.remove("is-hidden");
 
     let pages = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      if (currentPage <= 4) {
-        pages = [1, 2, 3, 4, 5, "...", totalPages];
-      } else if (currentPage >= totalPages - 3) {
-        pages = [1, "...", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    const isMobile = window.innerWidth <= 640;
+    if (isMobile) {
+      if (totalPages <= 5) {
+        for (let i = 1; i <= totalPages; i++) pages.push(i);
       } else {
-        pages = [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
+        if (currentPage <= 2) {
+          pages = [1, 2, 3, "...", totalPages];
+        } else if (currentPage >= totalPages - 1) {
+          pages = [1, "...", totalPages - 2, totalPages - 1, totalPages];
+        } else {
+          pages = [1, "...", currentPage, "...", totalPages];
+        }
+      }
+    } else {
+      if (totalPages <= 7) {
+        for (let i = 1; i <= totalPages; i++) pages.push(i);
+      } else {
+        if (currentPage <= 4) {
+          pages = [1, 2, 3, 4, 5, "...", totalPages];
+        } else if (currentPage >= totalPages - 3) {
+          pages = [1, "...", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+        } else {
+          pages = [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
+        }
       }
     }
 
@@ -217,7 +236,7 @@
         if (page && page !== currentPage && page >= 1 && page <= totalPages) {
           currentPage = page;
           renderResults();
-          const target = resultsList.closest(".serp-layout") || resultsList;
+          const target = document.getElementById("resultBoard") || resultsList.closest(".serp-layout") || resultsList;
           target.scrollIntoView({ behavior: "smooth", block: "start" });
         }
       });
@@ -311,8 +330,10 @@
         ? (window.SEARCH_VIEW_ACTION_LABEL || "动态转存")
         : "打开资源";
 
+      const hasPoster = Boolean(item.cover_url && String(item.cover_url).trim());
+
       html += `
-        <article class="serp-item has-poster" data-index="${startIndex + idx}">
+        <article class="serp-item ${hasPoster ? 'has-poster' : ''}" data-index="${startIndex + idx}">
           <div class="serp-item__content">
             <div class="serp-item__source">
               <img src="${iconUrl}" alt="${escapeHtml(item.cloud_name)}">
@@ -343,9 +364,10 @@
               </span>
             </div>
           </div>
-          <div class="serp-item__poster ${item.cover_url ? '' : 'is-broken'}">
-            ${item.cover_url ? `<img src="${escapeHtml(item.cover_url)}" alt="${escapeHtml(item.title)}" loading="lazy" onerror="this.parentElement.classList.add('is-broken'); this.remove();">` : ''}
-          </div>
+          ${hasPoster ? `
+          <div class="serp-item__poster">
+            <img src="${escapeHtml(item.cover_url)}" alt="${escapeHtml(item.title)}" loading="lazy" onerror="const p=this.closest('.serp-item__poster'); if(p){p.style.display='none';} const a=this.closest('.serp-item'); if(a){a.classList.remove('has-poster');}">
+          </div>` : ''}
         </article>
       `;
     });

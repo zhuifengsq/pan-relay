@@ -6,7 +6,7 @@ from src.configs.logging_setup import setup_logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request, redirect, url_for, send_from_directory
 from src.routes.api_config_routes import api_config_bp
 from src.routes.search_routes import search_bp
 from src.routes.resource_routes import resources_bp
@@ -41,6 +41,9 @@ from src.services.system_config_service import (
     get_frontend_disclaimer_text,
     get_frontend_copyright_text,
     get_frontend_seo_config,
+    is_frontend_footer_text_enabled,
+    is_frontend_disclaimer_enabled,
+    is_frontend_copyright_enabled,
 )
 from src.services.theme_service import theme_static_bp
 from src.utils.netdisk_utils import get_netdisk_drive_type
@@ -142,8 +145,11 @@ def inject_login_status():
     return {
         'is_logged_in': is_logged_in,
         'enable_frontend_github': is_frontend_github_enabled(),
+        'enable_frontend_footer_text': is_frontend_footer_text_enabled(),
         'frontend_footer_text': get_frontend_github_config().get('footer_text', 'Pan-Relay 发现海量网盘资源'),
+        'enable_frontend_disclaimer': is_frontend_disclaimer_enabled(),
         'frontend_disclaimer_text': get_frontend_disclaimer_text(),
+        'enable_frontend_copyright': is_frontend_copyright_enabled(),
         'frontend_copyright_text': get_frontend_copyright_text(),
         'frontend_friend_links': frontend_seo_config.get('friend_links', {'enabled': False, 'items': []}),
         'frontend_announcement': frontend_seo_config.get('announcement', {'enabled': True, 'text': '每日持续更新，热门影视与网盘资源一站搜索。'}),
@@ -257,6 +263,16 @@ def search_page():
 @app.route('/docs')
 def public_api_docs_page():
     return render_template('api_docs.html')
+
+
+# 根路径 Favicon 路由 (消除浏览器自动请求 /favicon.ico 导致的 404，统一返回系统项目图标)
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(
+        os.path.join(app.root_path, 'static', 'images'),
+        'favicon.ico',
+        mimetype='image/vnd.microsoft.icon'
+    )
 
 
 

@@ -121,7 +121,8 @@
                                 <input type="text" id="siteLogoInput" value="{{ current_site_logo }}"
                                     placeholder="输入图片 URL 或本地静态路径"
                                     class="form-control text-xs bg-white border-slate-300"
-                                    onkeydown="if(event.key==='Enter') saveSiteBranding()">
+                                    oninput="onSiteLogoInputChange()"
+                                    onblur="saveSiteBranding(true)">
                             </div>
                         </div>
                         <div class="flex items-center gap-2">
@@ -138,20 +139,20 @@
                         </div>
                     </div>
 
-                    <!-- 右侧: 站点名称与保存按钮 -->
+                    <!-- 右侧: 站点名称 -->
                     <div class="space-y-3">
-                        <label class="block text-xs font-semibold text-slate-700">站点名称 (Site Title)</label>
+                        <div class="flex items-center justify-between">
+                            <label class="block text-xs font-semibold text-slate-700">站点名称 (Site Title)</label>
+                            <span id="siteBrandingSaveStatus" class="text-xs text-slate-400 font-medium whitespace-nowrap min-h-[18px]"></span>
+                        </div>
                         <div class="flex items-center gap-2">
                             <input type="text" id="siteNameInput" value="{{ current_site_name }}"
                                 placeholder="例如: Pan-Relay 聚合分发"
                                 class="form-control text-xs bg-white border-slate-300 flex-1"
-                                onkeydown="if(event.key==='Enter') saveSiteBranding()">
-                            <button type="button" onclick="saveSiteBranding()"
-                                class="btn btn-primary btn-sm text-xs px-3.5 py-2 flex items-center justify-center gap-1.5 flex-shrink-0">
-                                <i class="fas fa-save text-[11px]"></i> 保存
-                            </button>
+                                oninput="scheduleSiteBrandingSave()"
+                                onblur="saveSiteBranding(true)">
                         </div>
-                        <p class="text-[11px] text-slate-400">统一应用于所有前台主题导航栏，并可在 SEO 标题中使用 {site_name}</p>
+                        <p class="text-[11px] text-slate-400">统一应用于所有前台主题导航栏，修改后自动保存，并可在 SEO 标题中使用 {site_name}</p>
                     </div>
                 </div>
             </div>
@@ -217,50 +218,73 @@
 
                     <div class="setting-item-row">
                         <div class="space-y-1 min-w-0 pr-4">
-                            <span class="font-semibold text-slate-800 text-sm">统一页脚文字</span>
-                            <p class="text-xs text-slate-500">此文字显示在页脚，留空时不显示</p>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-semibold text-slate-800 text-sm">统一页脚文字</span>
+                                <span class="help-tooltip"
+                                    data-tooltip="控制前台页脚副标文字展示。关闭后前台将不显示此页脚文字。">
+                                    <i class="far fa-circle-question text-xs"></i>
+                                </span>
+                            </div>
+                            <p class="text-xs text-slate-500">此文字显示在页脚，留空时不显示，修改后自动保存</p>
                         </div>
-                        <div class="frontend-inline-setting-control flex items-center gap-2 flex-1 max-w-xl">
+                        <div class="frontend-inline-setting-control flex items-center gap-3 flex-1 max-w-xl">
                             <input type="text" id="frontendFooterTextInput"
-                                class="form-control text-xs bg-white border-slate-300 flex-1"
+                                class="form-control text-xs bg-white border-slate-300 flex-1 transition-opacity {% if not enable_frontend_footer_text %}opacity-50{% endif %}"
                                 placeholder="Pan-Relay 发现海量网盘资源"
-                                onkeydown="if(event.key==='Enter') saveFrontendFooterText()">
-                            <button type="button" onclick="saveFrontendFooterText()"
-                                class="btn btn-primary btn-sm text-xs px-3 py-2 flex-shrink-0">
-                                <i class="fas fa-save mr-1"></i> 保存
-                            </button>
+                                value="{{ frontend_footer_text }}"
+                                {% if not enable_frontend_footer_text %}disabled{% endif %}
+                                oninput="scheduleFrontendFooterTextSave()"
+                                onblur="saveFrontendFooterText(true)">
+                            <span id="footerTextSaveStatus" class="text-xs text-slate-400 font-medium whitespace-nowrap min-w-[50px]"></span>
+                            <label class="plugin-switch flex-shrink-0" title="切换统一页脚文字展示">
+                                <input type="checkbox" id="enableFrontendFooterTextToggle"
+                                    onchange="toggleFrontendFooterTextState()" {% if enable_frontend_footer_text %}checked{% endif %}>
+                                <span class="plugin-switch-slider"></span>
+                            </label>
                         </div>
                     </div>
 
                     <div class="setting-item-row">
                         <div class="space-y-1 min-w-0 pr-4">
-                            <label for="frontendCopyrightTextInput" class="font-semibold text-slate-800 text-sm">版权与备案信息</label>
-                            <p class="text-xs text-slate-500">填写后显示在前台页脚；留空时保留默认版权信息</p>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <label for="frontendCopyrightTextInput" class="font-semibold text-slate-800 text-sm">版权与备案信息</label>
+                                <span class="help-tooltip"
+                                    data-tooltip="控制前台版权与备案信息展示。关闭后前台页脚将隐藏该信息。">
+                                    <i class="far fa-circle-question text-xs"></i>
+                                </span>
+                            </div>
+                            <p class="text-xs text-slate-500">填写后显示在前台页脚；留空时保留默认版权信息，修改后自动保存</p>
                         </div>
-                        <div class="frontend-inline-setting-control flex items-center gap-2 flex-1 max-w-xl">
+                        <div class="frontend-inline-setting-control flex items-center gap-3 flex-1 max-w-xl">
                             <input type="text" id="frontendCopyrightTextInput" maxlength="100"
                                 value="{{ frontend_copyright_text }}"
-                                class="form-control text-xs bg-white border-slate-300 flex-1"
-                                onkeydown="if(event.key==='Enter') saveFrontendCopyrightText()">
-                            <button type="button" onclick="saveFrontendCopyrightText()"
-                                class="btn btn-primary btn-sm text-xs px-3 py-2 flex-shrink-0">
-                                <i class="fas fa-save mr-1"></i> 保存
-                            </button>
+                                class="form-control text-xs bg-white border-slate-300 flex-1 transition-opacity {% if not enable_frontend_copyright %}opacity-50{% endif %}"
+                                {% if not enable_frontend_copyright %}disabled{% endif %}
+                                oninput="scheduleFrontendCopyrightTextSave()"
+                                onblur="saveFrontendCopyrightText(true)">
+                            <span id="copyrightTextSaveStatus" class="text-xs text-slate-400 font-medium whitespace-nowrap min-w-[50px]"></span>
+                            <label class="plugin-switch flex-shrink-0" title="切换版权与备案信息展示">
+                                <input type="checkbox" id="enableFrontendCopyrightToggle"
+                                    onchange="toggleFrontendCopyrightState()" {% if enable_frontend_copyright %}checked{% endif %}>
+                                <span class="plugin-switch-slider"></span>
+                            </label>
                         </div>
                     </div>
 
                     <div class="setting-item-row frontend-disclaimer-setting">
                         <div class="space-y-1 min-w-0 pr-4">
                             <span class="font-semibold text-slate-800 text-sm">统一免责声明</span>
-                            <p class="text-xs text-slate-500">前台免责声明与原理提示共用此内容，支持换行，最多 1000 个字符</p>
+                            <p class="text-xs text-slate-500">前台免责声明与原理提示共用此内容，支持换行，最多 1000 个字符，留空时不显示，修改后自动保存</p>
                         </div>
-                        <div class="frontend-disclaimer-controls">
+                        <div class="frontend-disclaimer-controls flex-1 w-full flex flex-col items-end gap-1.5">
                             <textarea id="frontendDisclaimerTextInput" rows="5" maxlength="1000"
-                                class="form-control text-xs bg-white border-slate-300 leading-relaxed">{{ frontend_disclaimer_text }}</textarea>
-                            <button type="button" onclick="saveFrontendDisclaimerText()"
-                                class="btn btn-primary btn-sm text-xs px-3 py-2">
-                                <i class="fas fa-save mr-1"></i> 保存
-                            </button>
+                                class="form-control text-xs bg-white border-slate-300 leading-relaxed w-full"
+                                placeholder="输入免责声明与原理说明（留空则不显示）"
+                                oninput="scheduleFrontendDisclaimerTextSave()"
+                                onblur="saveFrontendDisclaimerText(true)">{{ frontend_disclaimer_text }}</textarea>
+                            <div class="flex justify-end w-full">
+                                <span id="disclaimerTextSaveStatus" class="text-xs text-slate-400 font-medium whitespace-nowrap min-h-[18px]"></span>
+                            </div>
                         </div>
                     </div>
 
@@ -307,19 +331,18 @@
                 <div class="setting-item-row frontend-disclaimer-setting border-t border-slate-100 pt-4">
                     <div class="space-y-1 min-w-0">
                         <label for="hotSearchesWordsInput" class="font-semibold text-slate-800 text-sm">热搜词列表</label>
-                        <p class="text-xs text-slate-500">每行输入一个关键词，用户点击将直接填入搜索</p>
+                        <p class="text-xs text-slate-500">每行输入一个关键词，修改后自动保存，用户点击将直接填入搜索</p>
                     </div>
-                    <div class="frontend-disclaimer-controls">
+                    <div class="frontend-disclaimer-controls flex-1 max-w-xl flex flex-col items-end gap-1.5">
                         <textarea id="hotSearchesWordsInput" rows="5"
                             placeholder="兰香如故&#10;现在就出发&#10;凡人修仙传&#10;余红旧事&#10;希望&#10;我不是大师&#10;无可替代&#10;仙逆&#10;我是证人"
                             oninput="scheduleHotSearchesConfigSave()"
-                            class="form-control text-xs font-mono bg-white border-slate-300 leading-relaxed {% if use_top_hot_searches %}opacity-50{% endif %}"
+                            onblur="scheduleHotSearchesConfigSave(0)"
+                            class="form-control text-xs font-mono bg-white border-slate-300 leading-relaxed w-full {% if use_top_hot_searches %}opacity-50{% endif %}"
                             {% if use_top_hot_searches %}disabled{% endif %}>{{ hot_search_words_text }}</textarea>
-                        <button type="button" onclick="saveHotSearchesConfig()" id="saveHotSearchesBtn"
-                            class="btn btn-primary btn-sm text-xs px-3 py-2 {% if not enable_hot_searches or use_top_hot_searches %}opacity-50 cursor-not-allowed{% endif %}"
-                            {% if not enable_hot_searches or use_top_hot_searches %}disabled aria-disabled="true"{% endif %}>
-                            <i class="fas fa-save mr-1"></i> 保存
-                        </button>
+                        <div class="flex justify-end w-full">
+                            <span id="hotSearchesSaveStatus" class="text-xs text-slate-400 font-medium whitespace-nowrap min-h-[18px]"></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -345,20 +368,23 @@
                             <label for="seoHomeTitle" class="block text-xs font-semibold text-slate-700 mb-1">标题</label>
                             <input id="seoHomeTitle" maxlength="200"
                                 class="form-control text-xs bg-white border-slate-300"
-                                value="{{ frontend_seo_config.home.title }}">
+                                value="{{ frontend_seo_config.home.title }}"
+                                oninput="scheduleSeoConfigSave()">
                         </div>
                         <div>
                             <label for="seoHomeDescription"
                                 class="block text-xs font-semibold text-slate-700 mb-1">描述</label>
                             <textarea id="seoHomeDescription" maxlength="500" rows="3"
-                                class="form-control text-xs bg-white border-slate-300">{{ frontend_seo_config.home.description }}</textarea>
+                                class="form-control text-xs bg-white border-slate-300"
+                                oninput="scheduleSeoConfigSave()">{{ frontend_seo_config.home.description }}</textarea>
                         </div>
                         <div>
                             <label for="seoHomeKeywords"
                                 class="block text-xs font-semibold text-slate-700 mb-1">关键词（可选）</label>
                             <input id="seoHomeKeywords" maxlength="500"
                                 class="form-control text-xs bg-white border-slate-300"
-                                value="{{ frontend_seo_config.home.keywords }}">
+                                value="{{ frontend_seo_config.home.keywords }}"
+                                oninput="scheduleSeoConfigSave()">
                         </div>
                     </div>
 
@@ -369,26 +395,24 @@
                                 class="block text-xs font-semibold text-slate-700 mb-1">标题模板</label>
                             <input id="seoSearchTitle" maxlength="200"
                                 class="form-control text-xs bg-white border-slate-300"
-                                value="{{ frontend_seo_config.search.title }}">
+                                value="{{ frontend_seo_config.search.title }}"
+                                oninput="scheduleSeoConfigSave()">
                         </div>
                         <div>
                             <label for="seoSearchDescription"
                                 class="block text-xs font-semibold text-slate-700 mb-1">描述模板</label>
                             <textarea id="seoSearchDescription" maxlength="500" rows="3"
-                                class="form-control text-xs bg-white border-slate-300">{{ frontend_seo_config.search.description }}</textarea>
+                                class="form-control text-xs bg-white border-slate-300"
+                                oninput="scheduleSeoConfigSave()">{{ frontend_seo_config.search.description }}</textarea>
                         </div>
                         <div>
                             <label for="seoSearchKeywords"
                                 class="block text-xs font-semibold text-slate-700 mb-1">关键词模板（可选）</label>
                             <input id="seoSearchKeywords" maxlength="500"
                                 class="form-control text-xs bg-white border-slate-300"
-                                value="{{ frontend_seo_config.search.keywords }}">
+                                value="{{ frontend_seo_config.search.keywords }}"
+                                oninput="scheduleSeoConfigSave()">
                         </div>
-                        <label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                            <input type="checkbox" id="seoSearchAllowIndexing" class="rounded border-slate-300" {% if
-                                frontend_seo_config.search.allow_indexing %}checked{% endif %}>
-                            允许搜索引擎收录搜索结果页
-                        </label>
                     </div>
                 </div>
                 <div class="rounded-xl border border-slate-200 p-4 space-y-3 mb-5">
@@ -397,14 +421,19 @@
                             <h3 class="text-sm font-bold text-slate-800">全局站点公告</h3>
                             <p class="text-xs text-slate-500 mt-1">显示在模板 1、2、3 的首页搜索区下方。</p>
                         </div>
-                        <label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer whitespace-nowrap">
-                            <input type="checkbox" id="seoAnnouncementEnabled" class="rounded border-slate-300">
-                            启用公告
-                        </label>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-slate-500 font-medium">启用公告</span>
+                            <label class="plugin-switch" title="切换站点公告展示">
+                                <input type="checkbox" id="seoAnnouncementEnabled" onchange="toggleAnnouncementState()" {% if frontend_seo_config.announcement.enabled %}checked{% endif %}>
+                                <span class="plugin-switch-slider"></span>
+                            </label>
+                        </div>
                     </div>
                     <textarea id="seoAnnouncementText" maxlength="1000" rows="3"
-                        class="form-control text-xs bg-white border-slate-300"
-                        placeholder="输入要展示给访客的站点公告"></textarea>
+                        class="form-control text-xs bg-white border-slate-300 transition-opacity {% if not frontend_seo_config.announcement.enabled %}opacity-50{% endif %}"
+                        {% if not frontend_seo_config.announcement.enabled %}disabled{% endif %}
+                        placeholder="输入要展示给访客的站点公告"
+                        oninput="scheduleSeoConfigSave()">{{ frontend_seo_config.announcement.text }}</textarea>
                 </div>
                 <div class="rounded-xl border border-slate-200 p-4 space-y-3 mb-5">
                     <div class="flex items-center justify-between gap-4">
@@ -412,23 +441,28 @@
                             <h3 class="text-sm font-bold text-slate-800">全局友情链接</h3>
                             <p class="text-xs text-slate-500 mt-1">配置后显示在模板 1、2、3 的页脚；每行填写“名称 | https://网址”。</p>
                         </div>
-                        <label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer whitespace-nowrap">
-                            <input type="checkbox" id="seoFriendLinksEnabled" class="rounded border-slate-300">
-                            启用友情链接
-                        </label>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-slate-500 font-medium">启用友情链接</span>
+                            <label class="plugin-switch" title="切换友情链接展示">
+                                <input type="checkbox" id="seoFriendLinksEnabled" onchange="toggleFriendLinksState()" {% if frontend_seo_config.friend_links.enabled %}checked{% endif %}>
+                                <span class="plugin-switch-slider"></span>
+                            </label>
+                        </div>
                     </div>
                     <textarea id="seoFriendLinksItems" maxlength="28000" rows="5"
-                        class="form-control text-xs bg-white border-slate-300"
-                        placeholder="示例：\n资源站 | https://example.com\n影视导航 | https://movie.example.com"></textarea>
+                        class="form-control text-xs bg-white border-slate-300 transition-opacity {% if not frontend_seo_config.friend_links.enabled %}opacity-50{% endif %}"
+                        {% if not frontend_seo_config.friend_links.enabled %}disabled{% endif %}
+                        placeholder="示例：&#10;资源站 | https://example.com&#10;影视导航 | https://movie.example.com"
+                        oninput="scheduleSeoConfigSave()">{% for item in frontend_seo_config.friend_links['items'] %}{{ item.name }} | {{ item.url }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
                 </div>
-                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-3 border-t border-slate-100">
                     <p class="text-[11px] text-slate-500">搜索页模板支持 <code>{query}</code> 和
-                        <code>{site_name}</code>。关键词标签为兼容项，Google 不使用它参与排名。
+                        <code>{site_name}</code>。所有配置修改后将自动保存并实时生效。
                     </p>
-                    <button type="button" onclick="saveFrontendSeoConfig()"
-                        class="btn btn-primary btn-sm text-xs px-4 py-2 flex-shrink-0">
-                        <i class="fas fa-save mr-1"></i> 保存 SEO 设置
-                    </button>
+                    <div class="flex items-center gap-3 flex-shrink-0">
+                        <span id="seoSaveStatus" class="text-xs text-slate-400 font-medium"></span>
+                    </div>
                 </div>
             </div>
         </section>
@@ -795,9 +829,32 @@
             alert('切换主题网络异常，请稍后重试');
         }
     }
-    async function saveSiteBranding() {
+    let siteBrandingSaveTimer = null;
+    function scheduleSiteBrandingSave(delay = 600) {
+        clearTimeout(siteBrandingSaveTimer);
+        if (delay === 0) {
+            saveSiteBranding(true);
+            return;
+        }
+        siteBrandingSaveTimer = setTimeout(() => saveSiteBranding(true), delay);
+    }
+
+    function onSiteLogoInputChange() {
+        const logoUrl = (document.getElementById('siteLogoInput')?.value || '').trim();
+        const previewEl = document.getElementById('currentLogoPreview');
+        if (previewEl && logoUrl) {
+            previewEl.src = logoUrl;
+        }
+        scheduleSiteBrandingSave(600);
+    }
+
+    async function saveSiteBranding(isSilent = false) {
         const siteName = (document.getElementById('siteNameInput')?.value || '').trim();
         const logoUrl = (document.getElementById('siteLogoInput')?.value || '').trim();
+        const statusEl = document.getElementById('siteBrandingSaveStatus');
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500 mr-1"></i>保存中...';
+        }
         try {
             const resp = await fetch('/api/site/branding/save', {
                 method: 'POST',
@@ -810,16 +867,30 @@
                 if (previewEl) previewEl.src = data.site_logo;
                 const pathEl = document.getElementById('currentLogoPath');
                 if (pathEl) pathEl.textContent = data.site_logo;
-                if (typeof showToast === 'function') {
-                    showToast('站点品牌与 Logo 保存成功！', 'success');
-                } else {
-                    alert('站点品牌与 Logo 保存成功！');
+                if (statusEl) {
+                    statusEl.innerHTML = '<i class="fas fa-check text-emerald-500 mr-1"></i>已保存';
+                    setTimeout(() => {
+                        if (statusEl && statusEl.innerHTML.includes('已保存')) {
+                            statusEl.innerHTML = '';
+                        }
+                    }, 2500);
+                }
+                if (!isSilent) {
+                    if (typeof showToast === 'function') {
+                        showToast('站点品牌与 Logo 保存成功！', 'success');
+                    }
                 }
             } else {
-                alert(data.message || '保存失败');
+                if (statusEl) {
+                    statusEl.innerHTML = '<i class="fas fa-exclamation-circle text-rose-500 mr-1"></i>保存失败';
+                }
+                if (!isSilent) alert(data.message || '保存失败');
             }
         } catch (e) {
-            alert('网络错误，请稍后重试');
+            if (statusEl) {
+                statusEl.innerHTML = '<i class="fas fa-exclamation-circle text-rose-500 mr-1"></i>保存失败';
+            }
+            if (!isSilent) alert('网络错误，请稍后重试');
         }
     }
 
@@ -857,8 +928,11 @@
 
     function resetDefaultLogo() {
         const defaultLogo = '/static/images/hero_search_top.webp';
-        document.getElementById('siteLogoInput').value = defaultLogo;
-        saveSiteBranding();
+        const logoInput = document.getElementById('siteLogoInput');
+        if (logoInput) logoInput.value = defaultLogo;
+        const previewEl = document.getElementById('currentLogoPreview');
+        if (previewEl) previewEl.src = defaultLogo;
+        saveSiteBranding(false);
     }
 
     async function saveResourceRequestConfig() {
@@ -888,8 +962,7 @@
     }
 
     async function toggleHotSearchesState() {
-        updateHotSearchSaveButtonState();
-        saveHotSearchesConfig();
+        saveHotSearchesConfig(true);
     }
 
     function toggleHotSearchSourceState() {
@@ -900,31 +973,20 @@
             input.disabled = useTop;
             input.classList.toggle('opacity-50', useTop);
         }
-        updateHotSearchSaveButtonState();
-        saveHotSearchesConfig();
+        saveHotSearchesConfig(true);
     }
 
     let hotSearchSaveTimer = null;
-    let isHotSearchConfigSaving = false;
-
-    function scheduleHotSearchesConfigSave() {
+    function scheduleHotSearchesConfigSave(delay = 600) {
         clearTimeout(hotSearchSaveTimer);
-        hotSearchSaveTimer = setTimeout(() => saveHotSearchesConfig(), 600);
+        if (delay === 0) {
+            saveHotSearchesConfig(true);
+            return;
+        }
+        hotSearchSaveTimer = setTimeout(() => saveHotSearchesConfig(true), delay);
     }
 
-    function updateHotSearchSaveButtonState() {
-        const button = document.getElementById('saveHotSearchesBtn');
-        if (!button) return;
-        const boardEnabled = document.getElementById('enableHotSearchesToggle')?.checked ?? false;
-        const topEnabled = document.getElementById('useTopHotSearchesToggle')?.checked ?? false;
-        const unavailable = !boardEnabled || topEnabled || isHotSearchConfigSaving;
-        button.disabled = unavailable;
-        button.setAttribute('aria-disabled', unavailable ? 'true' : 'false');
-        button.classList.toggle('opacity-50', unavailable);
-        button.classList.toggle('cursor-not-allowed', unavailable);
-    }
-
-    async function saveHotSearchesConfig() {
+    async function saveHotSearchesConfig(isSilent = false) {
         const toggle = document.getElementById('enableHotSearchesToggle');
         const enabled = toggle ? toggle.checked : true;
         const useTopToggle = document.getElementById('useTopHotSearchesToggle');
@@ -935,11 +997,9 @@
         const text = input ? input.value : '';
         const words = text.split('\n').map(w => w.trim()).filter(Boolean);
 
-        const btn = document.getElementById('saveHotSearchesBtn');
-        if (btn) {
-            isHotSearchConfigSaving = true;
-            updateHotSearchSaveButtonState();
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin text-[11px]"></i> 保存中...';
+        const statusEl = document.getElementById('hotSearchesSaveStatus');
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500 mr-1"></i>保存中...';
         }
 
         try {
@@ -950,21 +1010,34 @@
             });
             const data = await resp.json();
             if (resp.ok && data.success) {
-                if (typeof showToast === 'function') {
-                    showToast('前台热搜词推荐配置已保存！全局模板已同步更新。', 'success');
-                } else {
-                    alert('前台热搜词推荐配置已保存！全局模板已同步更新。');
+                if (statusEl) {
+                    statusEl.innerHTML = '<i class="fas fa-check text-emerald-500 mr-1"></i>已保存';
+                    setTimeout(() => {
+                        if (statusEl && statusEl.innerHTML.includes('已保存')) {
+                            statusEl.innerHTML = '';
+                        }
+                    }, 2500);
+                }
+                if (!isSilent) {
+                    if (typeof showToast === 'function') {
+                        showToast('前台热搜词推荐配置已保存', 'success');
+                    }
                 }
             } else {
-                alert(data.message || '保存热搜词失败');
+                if (statusEl) {
+                    statusEl.innerHTML = '<i class="fas fa-exclamation-circle text-rose-500 mr-1"></i>保存失败';
+                }
+                if (!isSilent) {
+                    if (typeof showToast === 'function') {
+                        showToast(data.message || '保存热搜词失败', 'danger');
+                    } else {
+                        alert(data.message || '保存热搜词失败');
+                    }
+                }
             }
         } catch (e) {
-            alert('网络异常，请稍后重试');
-        } finally {
-            if (btn) {
-                isHotSearchConfigSaving = false;
-                btn.innerHTML = '<i class="fas fa-save mr-1"></i> 保存';
-                updateHotSearchSaveButtonState();
+            if (statusEl) {
+                statusEl.innerHTML = '<i class="fas fa-exclamation-circle text-rose-500 mr-1"></i>保存失败';
             }
         }
     }

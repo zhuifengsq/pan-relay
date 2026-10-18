@@ -74,17 +74,9 @@ const searchInput = document.getElementById('searchInput');
 const resultContainer = document.getElementById('resultContainer');
 const loadingMore = document.getElementById('loadingMore');
 const resultCountText = document.getElementById('resultCountText');
-const statusBar = document.getElementById('statusBar');
 const exportExcelBtn = document.getElementById('exportExcelBtn');
 const advancedFilterToggle = document.getElementById('advancedFilterToggle');
 const advancedFilterPanel = document.getElementById('advancedFilterPanel');
-const searchStatsPills = document.getElementById('searchStatsPills');
-const statPillValid = document.getElementById('statPillValid');
-const statCountValid = document.getElementById('statCountValid');
-const statPillInvalid = document.getElementById('statPillInvalid');
-const statCountInvalid = document.getElementById('statCountInvalid');
-const statPillChecking = document.getElementById('statPillChecking');
-const statCountChecking = document.getElementById('statCountChecking');
 
 const viewResultModalElement = document.getElementById('viewResultModal');
 const viewResultLoadingState = document.getElementById('viewResultLoadingState');
@@ -109,13 +101,6 @@ const viewResultModal = viewResultModalElement ? {
 let currentResolvedViewResult = null;
 let isAdvancedFilterOpen = false;
 
-// 绑定已失效胶囊点击一键过滤/恢复
-statPillInvalid?.addEventListener('click', function () {
-    if (hideDeadLinksToggle) {
-        hideDeadLinksToggle.click();
-    }
-});
-
 hideDeadLinksToggle?.addEventListener('click', function () {
     isHideDeadLinks = !isHideDeadLinks;
     try {
@@ -130,7 +115,6 @@ hideDeadLinksToggle?.addEventListener('click', function () {
     updateFilterButtons();
     renderResults(true);
     toggleScrollbarBasedOnContent();
-    updateSearchStatsPills();
 });
 
 function setAdvancedFilterOpen(isOpen) {
@@ -214,102 +198,6 @@ function parseResultDateTime(rawStr) {
         isToday,
     };
 }
-
-// --- 辅助函数：更新搜索状态胶囊统计 (有效 / 失效 / 测活中 / 磁力) ---
-function updateSearchStatsPills() {
-    if (!searchStatsPills) return;
-    if (!allResults || allResults.length === 0) {
-        searchStatsPills.classList.add('hidden');
-        return;
-    }
-
-    const targetResults = allResults.filter(result => {
-        const netdisk = result[3];
-        if (currentFilter !== '全部' && netdisk !== currentFilter) return false;
-
-        const title = (result[1] || '').toLowerCase();
-        const matchesInclude = includeKeywords.length === 0 ||
-            includeKeywords.every(kw => title.includes(kw.toLowerCase()));
-        const matchesExclude = excludeKeywords.length === 0 ||
-            !excludeKeywords.some(kw => title.includes(kw.toLowerCase()));
-        return matchesInclude && matchesExclude;
-    });
-
-    if (targetResults.length === 0) {
-        searchStatsPills.classList.add('hidden');
-        return;
-    }
-
-    let validCount = 0;
-    let invalidCount = 0;
-    let checkingCount = 0;
-    targetResults.forEach(result => {
-        const url = result[2] || '';
-        const netdisk = result[3] || '';
-        const isMagnet = url.startsWith('magnet:') || url.startsWith('ed2k:') || url.startsWith('thunder:') || netdisk.includes('磁力');
-        if (isMagnet) return;
-
-        const key = extractCanonicalResourceKeyFront(url);
-        const health = (key && linkHealthCache.get(key)) || linkHealthCache.get(url);
-
-        if (health) {
-            if (health.state === 'ok' || health.state === 'locked') {
-                validCount++;
-            } else if (health.state === 'bad') {
-                invalidCount++;
-            }
-        } else if (isLinkCheckEnabled && isNetdiskCheckEnabled(netdisk)) {
-            checkingCount++;
-        }
-    });
-
-    let hasAnyStat = false;
-
-    if (isLinkCheckEnabled) {
-        // 1. 有效资源胶囊
-        if (validCount > 0 || (!isSearchRunning && !isCheckingQueueRunning)) {
-            if (statCountValid) statCountValid.textContent = validCount;
-            statPillValid?.classList.remove('hidden');
-            hasAnyStat = true;
-        } else {
-            statPillValid?.classList.add('hidden');
-        }
-
-        // 2. 已失效胶囊 (带交互提示)
-        if (statCountInvalid) statCountInvalid.textContent = invalidCount;
-        if (invalidCount > 0) {
-            statPillInvalid?.classList.remove('hidden');
-            if (statPillInvalid) {
-                statPillInvalid.title = isHideDeadLinks
-                    ? `已自动隐藏这 ${invalidCount} 条失效链接（点击显示全部）`
-                    : `发现 ${invalidCount} 条失效链接（点击快速隐藏）`;
-            }
-            hasAnyStat = true;
-        } else if (!isSearchRunning && !isCheckingQueueRunning && targetResults.length > 0) {
-            statPillInvalid?.classList.remove('hidden');
-            if (statPillInvalid) statPillInvalid.title = '当前结果暂无失效链接';
-            hasAnyStat = true;
-        } else {
-            statPillInvalid?.classList.add('hidden');
-        }
-
-        // 3. 测活中胶囊
-        if (checkingCount > 0 && (isSearchRunning || isCheckingQueueRunning)) {
-            if (statCountChecking) statCountChecking.textContent = checkingCount;
-            statPillChecking?.classList.remove('hidden');
-            hasAnyStat = true;
-        } else {
-            statPillChecking?.classList.add('hidden');
-        }
-    }
-
-    if (hasAnyStat) {
-        searchStatsPills.classList.remove('hidden');
-    } else {
-        searchStatsPills.classList.add('hidden');
-    }
-}
-
 
 // --- 辅助函数：全量网盘与协议链接品牌配色 ---
 function getNetdiskColorClass(netdiskName) {
@@ -672,13 +560,6 @@ function performSearch() {
         progressBar.style.width = '25%';
     }
 
-    if (statusBar) {
-        statusBar.classList.remove('hidden');
-        void statusBar.offsetWidth;
-        statusBar.classList.remove('toast-hidden');
-        statusBar.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span> 正在持续搜索更多资源...';
-    }
-
     resultCountText.classList.add('hidden');
     loadingMore.classList.add('hidden');
 
@@ -771,15 +652,6 @@ function finalizeSearch(hasError = false) {
             progressBarContainer.classList.add('hidden');
             progressBar.style.width = '0%';
         }, 350);
-    }
-
-    if (statusBar) {
-        statusBar.classList.add('toast-hidden');
-        setTimeout(() => {
-            if (!isSearchRunning) {
-                statusBar.classList.add('hidden');
-            }
-        }, 300);
     }
 
     if (allResults.length === 0 && !hasError) {
@@ -1018,7 +890,6 @@ function renderResults(reset = false) {
         loadingMore.classList.add('hidden');
         isFullyLoaded = !isSearchRunning;
         isLoadingNextBatch = false;
-        updateSearchStatsPills();
         return;
     }
 
@@ -1080,7 +951,6 @@ function renderResults(reset = false) {
         resultContainer.appendChild(item);
     });
 
-    updateSearchStatsPills();
     queueLinksForVerification(currentBatch);
 
     resultContainer.querySelectorAll('.copy-button:not([data-bound="true"])').forEach(button => {
@@ -1188,7 +1058,6 @@ function queueLinksForVerification(items) {
         checkQueue.push({ url, disk_type: diskType, key });
     }
 
-    updateSearchStatsPills();
     processCheckQueue();
 }
 
@@ -1231,7 +1100,6 @@ async function processCheckQueue() {
                             const currentFiltered = getFilteredResults();
                             resultCountText.textContent = `共找到 ${currentFiltered.length} 个结果 (${currentFilter})`;
                         }
-                        updateSearchStatsPills();
                     }
                 }
             } catch (err) {
@@ -1245,7 +1113,6 @@ async function processCheckQueue() {
         }
     } finally {
         isCheckingQueueRunning = false;
-        updateSearchStatsPills();
     }
 }
 

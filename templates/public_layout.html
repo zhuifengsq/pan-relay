@@ -4,6 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
 
     <script>
         window.tailwind = window.tailwind || {};
@@ -463,12 +465,21 @@
         <div class="container-fluid-custom">
             <div class="footer-copyright">
                 {% include "_friend_links.html" %}
-                <a id="disclaimerLink" role="button">{{ frontend_footer_text }}</a>
-                {% if frontend_copyright_text %}<p class="frontend-copyright-text">{{ frontend_copyright_text }}</p>{% endif %}
+                {% if enable_frontend_footer_text and frontend_footer_text %}
+                    {% if frontend_disclaimer_text %}
+                    <a id="disclaimerLink" role="button">{{ frontend_footer_text }}</a>
+                    {% else %}
+                    <span>{{ frontend_footer_text }}</span>
+                    {% endif %}
+                {% elif frontend_disclaimer_text %}
+                    <a id="disclaimerLink" role="button">免责声明</a>
+                {% endif %}
+                {% if enable_frontend_copyright and frontend_copyright_text %}<p class="frontend-copyright-text">{{ frontend_copyright_text }}</p>{% endif %}
             </div>
         </div>
     </div>
 
+    {% if frontend_disclaimer_text %}
     <div class="modal fade" id="disclaimerModal" tabindex="-1" aria-labelledby="disclaimerModalLabel"
         aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered disclaimer-modal-dialog">
@@ -489,6 +500,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
     {% if frontend_announcement.enabled and frontend_announcement.text %}
     <div class="modal fade" id="siteAnnouncementModal" tabindex="-1" aria-labelledby="siteAnnouncementModalLabel"

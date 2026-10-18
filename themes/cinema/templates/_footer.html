@@ -5,15 +5,15 @@
         <img class="site-footer__logo" src="{{ site_logo }}" alt="">
         <span>{{ site_name or 'Pan-Relay' }}</span>
       </a>
-      <p>{{ frontend_footer_text }}</p>
+      {% if enable_frontend_footer_text and frontend_footer_text %}<p>{{ frontend_footer_text }}</p>{% endif %}
     </div>
     <div class="site-footer__details">
       {% include "_friend_links.html" %}
-      <p class="site-footer__disclaimer">{{ frontend_disclaimer_text }}</p>
+      {% if frontend_disclaimer_text %}<p class="site-footer__disclaimer">{{ frontend_disclaimer_text }}</p>{% endif %}
       <div class="site-footer__meta">
         <a href="/#hot-search">热搜榜</a>
         <a href="/#resource-hall">资源大厅</a>
-        <span>{% if frontend_copyright_text %}{{ frontend_copyright_text }}{% else %}© {{ current_year or 2026 }} {{ site_name or 'Pan-Relay' }}{% endif %}</span>
+        {% if enable_frontend_copyright %}<span>{% if frontend_copyright_text %}{{ frontend_copyright_text }}{% else %}© {{ current_year or 2026 }} {{ site_name or 'Pan-Relay' }}{% endif %}</span>{% endif %}
       </div>
     </div>
   </div>

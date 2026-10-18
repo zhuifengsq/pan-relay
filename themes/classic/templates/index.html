@@ -6,7 +6,8 @@
 {% if seo_meta.keywords %}<meta name="keywords" content="{{ seo_meta.keywords }}">{% endif %}
 <meta name="robots" content="{{ seo_meta.robots }}">
 <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
-<link rel="stylesheet" href="{{ url_for('theme_static.serve_theme_asset', theme_name='classic', filename='css/index.css') }}?v=1.2.2">
+<link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
+<link rel="stylesheet" href="{{ url_for('theme_static.serve_theme_asset', theme_name='classic', filename='css/index.css') }}?v=1.2.3">
 {% endblock %}
 
 {% block content %}
@@ -36,11 +37,9 @@
                     {% if enable_hot_searches and hot_search_words %}
                     <div class="search-hot-words-bar" id="searchHotWordsBar">
                         <span class="hot-words-label"><i class="fas fa-fire-alt text-amber-500 me-1"></i>热搜：</span>
-                        <div class="hot-words-list">
-                            {% for word in hot_search_words %}
-                            <button type="button" class="hot-word-item" data-keyword="{{ word }}">{{ word }}</button>
-                            {% endfor %}
-                        </div>
+                        {% for word in hot_search_words %}
+                        <button type="button" class="hot-word-item" data-keyword="{{ word }}">{{ word }}</button>
+                        {% endfor %}
                     </div>
                     {% endif %}
                 </div>

@@ -7,7 +7,9 @@
   <meta name="description" content="{{ seo_meta.description }}">
   {% if seo_meta.keywords %}<meta name="keywords" content="{{ seo_meta.keywords }}">{% endif %}
   <meta name="robots" content="{{ seo_meta.robots }}">
-  <link rel="stylesheet" href="/themes/cinema/assets/css/theme.css?v=1.1.0">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
+  <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
+  <link rel="stylesheet" href="/themes/cinema/assets/css/theme.css?v=1.1.1">
 </head>
 <body>
   {% set header_search_href = '#search-box' %}

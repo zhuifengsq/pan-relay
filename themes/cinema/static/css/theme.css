@@ -29,9 +29,10 @@ button { color: inherit; }
 .main-nav a { position: relative; height: 100%; display: flex; align-items: center; color: #666b75; font-size: 14px; font-weight: 600; transition: color .2s ease; }
 .main-nav a:hover, .main-nav a.active { color: var(--ink); }
 .main-nav a.active::after { content: ''; position: absolute; height: 3px; width: 20px; background: var(--red); border-radius: 4px; bottom: 0; left: calc(50% - 10px); }
-.nav-search { margin-left: auto; border: 1px solid #eaebef; border-radius: 20px; padding: 8px 15px; font-size: 12px; color: #6f7480; font-weight: 600; transition: border-color .2s, color .2s; }
-.nav-search:hover { border-color: #f2a6a7; color: var(--red); }
-.nav-search span { margin-right: 4px; font-size: 16px; vertical-align: -1px; }
+.nav-search { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; border: 1px solid #eaebef; border-radius: 20px; padding: 7px 14px; font-size: 12px; color: #6f7480; font-weight: 600; line-height: 1; text-decoration: none; transition: border-color .2s, color .2s, background .2s; }
+.nav-search:hover { border-color: #f2a6a7; background: #fff7f6; color: var(--red); }
+.nav-search svg.nav-search-svg { width: 16px; height: 16px; flex-shrink: 0; }
+.nav-search span { margin-right: 0; font-size: 12px; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .topbar-actions .nav-search { margin-left: 0; }
 .github-star-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid #eaebef; border-radius: 20px; color: #6f7480; font-size: 12px; font-weight: 600; white-space: nowrap; transition: border-color .2s, color .2s, background .2s; }
@@ -151,8 +152,10 @@ button { color: inherit; }
   .github-star-link { gap: 0; padding: 7px 9px; font-size: 0; }
   .github-star-link svg { width: 17px; height: 17px; }
   .github-star-link b { display: none; }
-  .nav-search { padding: 7px 10px; font-size: 0; }
-  .nav-search span { margin: 0; font-size: 19px; }
+  .nav-search { width: 34px; height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 0; }
+  .nav-search svg.nav-search-svg { width: 18px; height: 18px; }
+  .nav-search .nav-search-text { display: none; }
+  .nav-search span { margin: 0; font-size: 0; }
   .hero { min-height: 330px; }
   .hero-content { padding-top: 37px; }
   .hero h1 { font-size: 38px; letter-spacing: -1.7px; }

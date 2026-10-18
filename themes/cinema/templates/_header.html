@@ -15,6 +15,12 @@
       <span>GitHub</span><b aria-hidden="true">★</b>
     </a>
     {% endif %}
-    <a class="nav-search" href="{{ header_search_href }}" id="topSearchLink"><span aria-hidden="true">⌕</span> 搜一搜</a>
+    <a class="nav-search" href="{{ header_search_href }}" id="topSearchLink" aria-label="搜一搜">
+      <svg class="nav-search-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"></circle>
+        <path d="m20 20-4.35-4.35"></path>
+      </svg>
+      <span class="nav-search-text">搜一搜</span>
+    </a>
   </div>
 </header>

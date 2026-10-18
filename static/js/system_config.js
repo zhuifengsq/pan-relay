@@ -371,8 +371,43 @@ async function loadFrontendGithubConfig() {
         if (footerInput) {
             footerInput.value = data.footer_text || '';
         }
+        const footerToggle = document.getElementById('enableFrontendFooterTextToggle');
+        if (footerToggle) {
+            footerToggle.checked = data.footer_enabled !== false;
+            updateFrontendFooterTextState(footerToggle.checked);
+        }
     } catch (error) {
         console.error('加载前台 GitHub 标识配置失败:', error);
+    }
+}
+
+function updateFrontendFooterTextState(enabled) {
+    const input = document.getElementById('frontendFooterTextInput');
+    if (input) {
+        input.disabled = !enabled;
+        input.classList.toggle('opacity-50', !enabled);
+    }
+}
+
+async function toggleFrontendFooterTextState() {
+    const toggle = document.getElementById('enableFrontendFooterTextToggle');
+    const enabled = toggle ? toggle.checked : true;
+    updateFrontendFooterTextState(enabled);
+    try {
+        const response = await fetch('/admin/api/frontend-github-config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ footer_enabled: enabled })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        }
+        showToast(data.message || (enabled ? '页脚文字已启用' : '页脚文字已停用'), 'success');
+    } catch (error) {
+        console.error('保存页脚文字开关失败:', error);
+        showToast(`保存配置失败: ${error.message}`, 'danger');
+        await loadFrontendGithubConfig();
     }
 }
 
@@ -400,9 +435,23 @@ async function saveFrontendGithubConfig() {
     }
 }
 
-async function saveFrontendFooterText() {
+let footerTextSaveTimer = null;
+function scheduleFrontendFooterTextSave(delay = 600) {
+    clearTimeout(footerTextSaveTimer);
+    if (delay === 0) {
+        saveFrontendFooterText(true);
+        return;
+    }
+    footerTextSaveTimer = setTimeout(() => saveFrontendFooterText(true), delay);
+}
+
+async function saveFrontendFooterText(isSilent = false) {
     const input = document.getElementById('frontendFooterTextInput');
     const footer_text = input ? input.value : '';
+    const statusEl = document.getElementById('footerTextSaveStatus');
+    if (statusEl) {
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500 mr-1"></i>保存中...';
+    }
     try {
         const response = await fetch('/admin/api/frontend-github-config', {
             method: 'PUT',
@@ -413,9 +462,22 @@ async function saveFrontendFooterText() {
         if (!response.ok || !data.success) {
             throw new Error(data.message || `HTTP error! status: ${response.status}`);
         }
-        showToast(data.message || '页脚文字已保存', 'success');
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-check text-emerald-500 mr-1"></i>已保存';
+            setTimeout(() => {
+                if (statusEl && statusEl.innerHTML.includes('已保存')) {
+                    statusEl.innerHTML = '';
+                }
+            }, 2500);
+        }
+        if (!isSilent) {
+            showToast(data.message || '页脚文字已保存', 'success');
+        }
     } catch (error) {
         console.error('保存前台页脚文字失败:', error);
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-exclamation-circle text-rose-500 mr-1"></i>保存失败';
+        }
         showToast(`保存配置失败: ${error.message}`, 'danger');
         await loadFrontendGithubConfig();
     }
@@ -430,14 +492,63 @@ async function loadFrontendCopyrightText() {
         }
         const input = document.getElementById('frontendCopyrightTextInput');
         if (input) input.value = data.copyright_text || '';
+        const toggle = document.getElementById('enableFrontendCopyrightToggle');
+        if (toggle) {
+            toggle.checked = data.enabled !== false;
+            updateFrontendCopyrightState(toggle.checked);
+        }
     } catch (error) {
         console.error('加载版权信息失败:', error);
     }
 }
 
-async function saveFrontendCopyrightText() {
+function updateFrontendCopyrightState(enabled) {
+    const input = document.getElementById('frontendCopyrightTextInput');
+    if (input) {
+        input.disabled = !enabled;
+        input.classList.toggle('opacity-50', !enabled);
+    }
+}
+
+async function toggleFrontendCopyrightState() {
+    const toggle = document.getElementById('enableFrontendCopyrightToggle');
+    const enabled = toggle ? toggle.checked : true;
+    updateFrontendCopyrightState(enabled);
+    try {
+        const response = await fetch('/admin/api/frontend-copyright-config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        }
+        showToast(data.message || (enabled ? '版权信息已启用' : '版权信息已停用'), 'success');
+    } catch (error) {
+        console.error('保存版权开关失败:', error);
+        showToast(`保存配置失败: ${error.message}`, 'danger');
+        await loadFrontendCopyrightText();
+    }
+}
+
+let copyrightTextSaveTimer = null;
+function scheduleFrontendCopyrightTextSave(delay = 600) {
+    clearTimeout(copyrightTextSaveTimer);
+    if (delay === 0) {
+        saveFrontendCopyrightText(true);
+        return;
+    }
+    copyrightTextSaveTimer = setTimeout(() => saveFrontendCopyrightText(true), delay);
+}
+
+async function saveFrontendCopyrightText(isSilent = false) {
     const input = document.getElementById('frontendCopyrightTextInput');
     const copyright_text = input ? input.value : '';
+    const statusEl = document.getElementById('copyrightTextSaveStatus');
+    if (statusEl) {
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500 mr-1"></i>保存中...';
+    }
     try {
         const response = await fetch('/admin/api/frontend-copyright-config', {
             method: 'PUT',
@@ -448,17 +559,58 @@ async function saveFrontendCopyrightText() {
         if (!response.ok || !data.success) {
             throw new Error(data.message || `HTTP error! status: ${response.status}`);
         }
-        showToast(data.message || '版权信息已保存', 'success');
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-check text-emerald-500 mr-1"></i>已保存';
+            setTimeout(() => {
+                if (statusEl && statusEl.innerHTML.includes('已保存')) {
+                    statusEl.innerHTML = '';
+                }
+            }, 2500);
+        }
+        if (!isSilent) {
+            showToast(data.message || '版权信息已保存', 'success');
+        }
     } catch (error) {
         console.error('保存版权信息失败:', error);
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-exclamation-circle text-rose-500 mr-1"></i>保存失败';
+        }
         showToast(`保存配置失败: ${error.message}`, 'danger');
         await loadFrontendCopyrightText();
     }
 }
 
-async function saveFrontendDisclaimerText() {
+async function loadFrontendDisclaimerText() {
+    try {
+        const response = await fetch('/admin/api/frontend-disclaimer-config');
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        }
+        const input = document.getElementById('frontendDisclaimerTextInput');
+        if (input) input.value = data.disclaimer_text || '';
+    } catch (error) {
+        console.error('加载免责声明失败:', error);
+    }
+}
+
+let disclaimerTextSaveTimer = null;
+function scheduleFrontendDisclaimerTextSave(delay = 600) {
+    clearTimeout(disclaimerTextSaveTimer);
+    if (delay === 0) {
+        saveFrontendDisclaimerText(true);
+        return;
+    }
+    disclaimerTextSaveTimer = setTimeout(() => saveFrontendDisclaimerText(true), delay);
+}
+
+async function saveFrontendDisclaimerText(isSilent = false) {
     const input = document.getElementById('frontendDisclaimerTextInput');
     const disclaimer_text = input ? input.value : '';
+    const statusEl = document.getElementById('disclaimerTextSaveStatus');
+    if (statusEl) {
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500 mr-1"></i>保存中...';
+    }
     try {
         const response = await fetch('/admin/api/frontend-disclaimer-config', {
             method: 'PUT',
@@ -469,10 +621,24 @@ async function saveFrontendDisclaimerText() {
         if (!response.ok || !data.success) {
             throw new Error(data.message || `HTTP error! status: ${response.status}`);
         }
-        showToast(data.message || '免责声明已保存', 'success');
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-check text-emerald-500 mr-1"></i>已保存';
+            setTimeout(() => {
+                if (statusEl && statusEl.innerHTML.includes('已保存')) {
+                    statusEl.innerHTML = '';
+                }
+            }, 2500);
+        }
+        if (!isSilent) {
+            showToast(data.message || '免责声明已保存', 'success');
+        }
     } catch (error) {
         console.error('保存前台免责声明失败:', error);
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-exclamation-circle text-rose-500 mr-1"></i>保存失败';
+        }
         showToast(`保存配置失败: ${error.message}`, 'danger');
+        await loadFrontendDisclaimerText();
     }
 }
 
@@ -500,10 +666,11 @@ async function loadFrontendSeoConfig() {
             const input = document.getElementById(id);
             if (input && typeof value === 'string') input.value = value;
         });
-        const allowIndexing = document.getElementById('seoSearchAllowIndexing');
-        if (allowIndexing) allowIndexing.checked = search.allow_indexing !== false;
         const friendLinksEnabled = document.getElementById('seoFriendLinksEnabled');
-        if (friendLinksEnabled) friendLinksEnabled.checked = friendLinks.enabled === true;
+        if (friendLinksEnabled) {
+            friendLinksEnabled.checked = friendLinks.enabled === true;
+            updateFriendLinksState(friendLinksEnabled.checked);
+        }
         const friendLinksItems = document.getElementById('seoFriendLinksItems');
         if (friendLinksItems && Array.isArray(friendLinks.items)) {
             friendLinksItems.value = friendLinks.items
@@ -512,7 +679,10 @@ async function loadFrontendSeoConfig() {
                 .join('\n');
         }
         const announcementEnabled = document.getElementById('seoAnnouncementEnabled');
-        if (announcementEnabled) announcementEnabled.checked = announcement.enabled !== false;
+        if (announcementEnabled) {
+            announcementEnabled.checked = announcement.enabled !== false;
+            updateAnnouncementState(announcementEnabled.checked);
+        }
         const announcementText = document.getElementById('seoAnnouncementText');
         if (announcementText && typeof announcement.text === 'string') announcementText.value = announcement.text;
     } catch (error) {
@@ -520,7 +690,54 @@ async function loadFrontendSeoConfig() {
     }
 }
 
-async function saveFrontendSeoConfig() {
+function updateAnnouncementState(enabled) {
+    const text = document.getElementById('seoAnnouncementText');
+    if (text) {
+        text.disabled = !enabled;
+        text.classList.toggle('opacity-50', !enabled);
+    }
+}
+
+function toggleAnnouncementState() {
+    const toggle = document.getElementById('seoAnnouncementEnabled');
+    const enabled = toggle ? toggle.checked : true;
+    updateAnnouncementState(enabled);
+    saveFrontendSeoConfig(true);
+    showToast(enabled ? '站点公告已启用' : '站点公告已停用', 'success');
+}
+
+function updateFriendLinksState(enabled) {
+    const items = document.getElementById('seoFriendLinksItems');
+    if (items) {
+        items.disabled = !enabled;
+        items.classList.toggle('opacity-50', !enabled);
+    }
+}
+
+function toggleFriendLinksState() {
+    const toggle = document.getElementById('seoFriendLinksEnabled');
+    const enabled = toggle ? toggle.checked : false;
+    updateFriendLinksState(enabled);
+    saveFrontendSeoConfig(true);
+    showToast(enabled ? '友情链接已启用' : '友情链接已停用', 'success');
+}
+
+let seoSaveTimer = null;
+let isSeoConfigSaving = false;
+
+function scheduleSeoConfigSave(delay = 600) {
+    clearTimeout(seoSaveTimer);
+    if (delay === 0) {
+        saveFrontendSeoConfig(true);
+        return;
+    }
+    seoSaveTimer = setTimeout(() => {
+        saveFrontendSeoConfig(true);
+    }, delay);
+}
+
+async function saveFrontendSeoConfig(isSilent = false) {
+    if (isSeoConfigSaving) return;
     const value = (id) => document.getElementById(id)?.value || '';
     const payload = {
         home: {
@@ -532,7 +749,7 @@ async function saveFrontendSeoConfig() {
             title: value('seoSearchTitle'),
             description: value('seoSearchDescription'),
             keywords: value('seoSearchKeywords'),
-            allow_indexing: Boolean(document.getElementById('seoSearchAllowIndexing')?.checked),
+            allow_indexing: true,
         },
         friend_links: {
             enabled: Boolean(document.getElementById('seoFriendLinksEnabled')?.checked),
@@ -550,6 +767,18 @@ async function saveFrontendSeoConfig() {
             text: value('seoAnnouncementText'),
         },
     };
+
+    const statusEl = document.getElementById('seoSaveStatus');
+    const saveBtn = document.getElementById('saveFrontendSeoBtn');
+    if (statusEl) {
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500 mr-1"></i>保存中...';
+    }
+    if (!isSilent && saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>保存中...';
+    }
+
+    isSeoConfigSaving = true;
     try {
         const response = await fetch('/admin/api/frontend-seo-config', {
             method: 'PUT',
@@ -560,10 +789,29 @@ async function saveFrontendSeoConfig() {
         if (!response.ok || !data.success) {
             throw new Error(data.message || `HTTP error! status: ${response.status}`);
         }
-        showToast(data.message || 'SEO 配置已保存', 'success');
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-check text-emerald-500 mr-1"></i>已自动保存';
+            setTimeout(() => {
+                if (statusEl && statusEl.innerHTML.includes('已自动保存')) {
+                    statusEl.innerHTML = '';
+                }
+            }, 2500);
+        }
+        if (!isSilent) {
+            showToast(data.message || '配置已成功保存', 'success');
+        }
     } catch (error) {
         console.error('保存前台 SEO 配置失败:', error);
-        showToast(`保存 SEO 配置失败: ${error.message}`, 'danger');
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-exclamation-circle text-rose-500 mr-1"></i>保存失败';
+        }
+        showToast(`保存配置失败: ${error.message}`, 'danger');
+    } finally {
+        isSeoConfigSaving = false;
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save mr-1"></i> 保存设置';
+        }
     }
 }
 
@@ -1737,6 +1985,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPcQrCodeConfig();
     loadFrontendGithubConfig();
     loadFrontendCopyrightText();
+    loadFrontendDisclaimerText();
     loadFrontendSeoConfig();
     loadFrontendLinkCheckConfig();
     loadTransferTargetDirConfig();
