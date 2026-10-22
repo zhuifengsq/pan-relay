@@ -94,13 +94,14 @@ class BaiduPanClient(BasePanClient):
             if to_dir and to_dir != "/":
                 self.ensure_dir(to_dir)
 
-            trans_res = self._transfer_file(share_id, from_uk, [target_fs_id], to_dir, surl=surl)
+            trans_res, actual_to_path = self._transfer_file(share_id, from_uk, [target_fs_id], to_dir, surl=surl)
             if not trans_res:
                 logger.error("百度网盘转存失败: %s", file_name)
                 return None, None, None
 
             new_fs_id = trans_res if isinstance(trans_res, int) and trans_res > 1 else None
-            full_path = f"{to_dir.rstrip('/')}/{file_name}" if to_dir != "/" else f"/{file_name}"
+            # 优先使用百度网盘实际转存路径（兼容 ondup=newcopy 自动重命名场景）
+            full_path = actual_to_path or (f"{to_dir.rstrip('/')}/{file_name}" if to_dir != "/" else f"/{file_name}")
 
             # 广告过滤与净化
             if not self._clean_ad_files(full_path):
@@ -294,18 +295,37 @@ class BaiduPanClient(BasePanClient):
         return True
 
     def del_file(self, file_path_list: List[str]) -> bool:
-        logger.info("正在删除百度网盘文件: %s", file_path_list)
+        if not file_path_list:
+            return True
+
+        # 规范化清理文件路径列表，确保每个路径非空且以 / 开头
+        clean_paths = []
+        for p in file_path_list:
+            if not p:
+                continue
+            p_str = str(p).strip()
+            if not p_str.startswith("/"):
+                p_str = "/" + p_str
+            clean_paths.append(p_str)
+
+        if not clean_paths:
+            return True
+
+        logger.info("正在删除百度网盘文件: %s", clean_paths)
+        if not self.bdstoken:
+            self.bdstoken = self._get_bdstoken()
+
         params = {
             "async": 2,
             "onnest": "fail",
             "opera": "delete",
             "bdstoken": self.bdstoken,
-            "newVerify": 1,
+            "channel": "chunlei",
             "clienttype": 0,
             "web": 1,
             "app_id": 250528,
         }
-        payload = {"filelist": self._to_json(file_path_list)}
+        payload = {"filelist": self._to_json(clean_paths)}
 
         try:
             data = self._request(
@@ -319,7 +339,7 @@ class BaiduPanClient(BasePanClient):
                 logger.info("百度网盘删除请求已提交: task=%s", data.get("taskid"))
                 return True
             if errno == 2:
-                logger.warning("百度网盘文件不存在，按删除成功处理: %s", file_path_list)
+                logger.warning("百度网盘文件不存在，按删除成功处理: %s", clean_paths)
                 return True
             logger.error("百度网盘删除失败: %s (%s)", get_baidu_errno_message(errno), data)
             return False
@@ -366,10 +386,22 @@ class BaiduPanClient(BasePanClient):
                 "GET",
                 "https://pan.baidu.com/api/gettemplatevariable?fields=[%22bdstoken%22]",
             )
-            return (data.get("result") or {}).get("bdstoken", "")
+            token = (data.get("result") or {}).get("bdstoken", "")
+            if token:
+                return token
         except Exception as exc:
             logger.warning("获取百度网盘 bdstoken 异常: %s", exc)
-            return ""
+
+        # 备选获取方案：从百度网盘主页 HTML 正则提取 bdstoken
+        try:
+            resp = self.session.get("https://pan.baidu.com/disk/home", timeout=10)
+            if resp.status_code == 200:
+                match = re.search(r'["\']bdstoken["\']\s*:\s*["\']([a-zA-Z0-9]+)["\']', resp.text)
+                if match:
+                    return match.group(1)
+        except Exception as exc:
+            logger.debug("从百度主页提取 bdstoken 备选方案失败: %s", exc)
+        return ""
 
     def _parse_share_url(self, url: str) -> Tuple[str, str]:
         surl_match = re.search(r"s/1([a-zA-Z0-9-_]+)", url) or re.search(
@@ -476,7 +508,7 @@ class BaiduPanClient(BasePanClient):
 
     def _transfer_file(
         self, share_id: str, from_uk: str, fs_id_list: List[str], to_path: str, surl: str = ""
-    ) -> Optional[int]:
+    ) -> Tuple[Optional[int], Optional[str]]:
         params = {
             "shareid": share_id,
             "from": from_uk,
@@ -505,18 +537,22 @@ class BaiduPanClient(BasePanClient):
             )
             errno = data.get("errno")
             if errno == 0:
+                to_fs_id = None
+                actual_path = None
                 try:
-                    to_fs_id = data.get("extra", {}).get("list", [{}])[0].get("to_fs_id")
-                    if to_fs_id:
-                        return int(to_fs_id)
+                    first_item = data.get("extra", {}).get("list", [{}])[0]
+                    raw_id = first_item.get("to_fs_id")
+                    if raw_id:
+                        to_fs_id = int(raw_id)
+                    actual_path = first_item.get("to")
                 except Exception:
                     pass
-                return 1
+                return to_fs_id or 1, actual_path
             logger.error("百度网盘转存失败: %s (%s)", get_baidu_errno_message(errno), data)
-            return None
+            return None, None
         except Exception as exc:
             logger.error("百度网盘转存请求异常: %s", exc)
-            return None
+            return None, None
 
     def _get_file_id_by_path(self, path: str) -> Optional[int]:
         if path == "/":

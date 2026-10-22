@@ -162,9 +162,16 @@ def random_read_record() -> Optional[Tuple]:
         return None
 
 
-def update_share_link(resource_id: int, new_share_link: str, file_id: Optional[str] = None) -> bool:
+def update_share_link(
+    resource_id: int,
+    new_share_link: str,
+    file_id: Optional[str] = None,
+    account_id: Optional[int] = None,
+    origin_type: Optional[str] = "relay",
+) -> bool:
     """
     更新资源的分享链接和 is_replaced 状态（供 pan_operator 使用）。
+    转存替换后的资源自动同步更新 account_id 并将 origin_type 标记为 relay（纳入定时自动清理范围）。
     """
     conn = get_db_connection()
     if not conn:
@@ -172,26 +179,29 @@ def update_share_link(resource_id: int, new_share_link: str, file_id: Optional[s
 
     cursor = conn.cursor()
     try:
-        if file_id:
-            sql = """
-            UPDATE resources
-            SET share_link = ?, file_id = ?, is_replaced = 1
-            WHERE id = ?
-            """
-            params = (new_share_link, file_id, resource_id)
-        else:
-            sql = """
-            UPDATE resources
-            SET share_link = ?, is_replaced = 1
-            WHERE id = ?
-            """
-            params = (new_share_link, resource_id)
+        set_clauses = ["share_link = ?", "is_replaced = 1"]
+        params = [new_share_link]
 
-        cursor.execute(sql, params)
+        if file_id is not None:
+            set_clauses.append("file_id = ?")
+            params.append(file_id)
+
+        if account_id is not None:
+            set_clauses.append("account_id = ?")
+            params.append(account_id)
+
+        if origin_type is not None:
+            set_clauses.append("origin_type = ?")
+            params.append(origin_type)
+
+        params.append(resource_id)
+        sql = f"UPDATE resources SET {', '.join(set_clauses)} WHERE id = ?"
+
+        cursor.execute(sql, tuple(params))
         conn.commit()
 
         if cursor.rowcount > 0:
-            logger.info(f"资源ID {resource_id} 的分享链接已更新为 {new_share_link}")
+            logger.info(f"资源ID {resource_id} 的分享链接已更新为 {new_share_link} (origin_type={origin_type})")
             return True
         logger.warning(f"未找到资源ID {resource_id}")
         return False
@@ -324,7 +334,7 @@ def get_resource_by_id(resource_id: int) -> Tuple[bool, str, Optional[Dict[str, 
     try:
         cursor = conn.cursor(as_dict=True)
         sql = """
-        SELECT id, name, share_link, cloud_name, type, remarks, account_id, is_replaced, origin_type, health_status, health_message, checked_at, created_at, updated_at
+        SELECT id, file_id, name, share_link, cloud_name, type, remarks, account_id, is_replaced, origin_type, health_status, health_message, checked_at, created_at, updated_at
         FROM resources WHERE id = ?
         """
         cursor.execute(sql, (resource_id,))
@@ -577,8 +587,8 @@ def list_expired_resources(days: Optional[int] = None, minutes: Optional[int] = 
             sql = """
             SELECT id, file_id, name, share_link, cloud_name, type, remarks, account_id, origin_type, created_at
             FROM resources
-            WHERE origin_type = 'relay'
-              AND datetime(created_at) < datetime('now', '-' || ? || ' minutes')
+            WHERE (origin_type = 'relay' OR is_replaced = 1)
+              AND datetime(created_at) <= datetime('now', '-' || ? || ' minutes')
             ORDER BY created_at ASC
             LIMIT ?
             """
@@ -588,8 +598,8 @@ def list_expired_resources(days: Optional[int] = None, minutes: Optional[int] = 
             sql = """
             SELECT id, file_id, name, share_link, cloud_name, type, remarks, account_id, origin_type, created_at
             FROM resources
-            WHERE origin_type = 'relay'
-              AND datetime(created_at) < datetime('now', '-' || ? || ' days')
+            WHERE (origin_type = 'relay' OR is_replaced = 1)
+              AND datetime(created_at) <= datetime('now', '-' || ? || ' days')
             ORDER BY created_at ASC
             LIMIT ?
             """
@@ -615,8 +625,8 @@ def count_expired_resources(days: Optional[int] = None, minutes: Optional[int] =
             sql = """
             SELECT COUNT(*) AS total
             FROM resources
-            WHERE origin_type = 'relay'
-              AND datetime(created_at) < datetime('now', '-' || ? || ' minutes')
+            WHERE (origin_type = 'relay' OR is_replaced = 1)
+              AND datetime(created_at) <= datetime('now', '-' || ? || ' minutes')
             """
             cursor.execute(sql, (int(minutes),))
         else:
@@ -624,8 +634,8 @@ def count_expired_resources(days: Optional[int] = None, minutes: Optional[int] =
             sql = """
             SELECT COUNT(*) AS total
             FROM resources
-            WHERE origin_type = 'relay'
-              AND datetime(created_at) < datetime('now', '-' || ? || ' days')
+            WHERE (origin_type = 'relay' OR is_replaced = 1)
+              AND datetime(created_at) <= datetime('now', '-' || ? || ' days')
             """
             cursor.execute(sql, (days_val,))
         row = cursor.fetchone()

@@ -144,8 +144,8 @@ def _execute_store(client, share_url, to_pdir_path: str = '/'):
 def _execute_delete(client, file_id: Any) -> bool:
     """执行单个客户端删除操作"""
     if not file_id:
-        logger.error(f"[{client.__class__.__name__}] 删除操作缺失 file_id")
-        return False
+        logger.info(f"[{client.__class__.__name__}] 无需物理文件删除(未指定file_id)")
+        return True
     parsed_file_id = _parse_file_id(file_id)
     if isinstance(client, BaiduPanClient):
         target = [parsed_file_id] if isinstance(parsed_file_id, str) else parsed_file_id
@@ -342,7 +342,13 @@ def create_share(share_data):
             account_id = used_account.get("id") if used_account else None
             if has_id:
                 # 场景 A: 已有记录更新链接
-                update_share_link(share_id, new_share_url, new_file_id)
+                update_share_link(
+                    share_id,
+                    new_share_url,
+                    new_file_id,
+                    account_id=account_id,
+                    origin_type="relay",
+                )
                 updated_record = {
                     'id': share_id,
                     'file_id': _normalize_file_id(new_file_id),
@@ -352,6 +358,7 @@ def create_share(share_data):
                     'cloud_name': share_data.get('cloud_name') or netdisk_type,
                     'account_id': account_id,
                     'is_replaced': 1,
+                    'origin_type': 'relay',
                 }
                 _TRANSFERRED_URL_CACHE[share_url] = updated_record
                 return updated_record
@@ -427,7 +434,11 @@ def del_share(share_data):
             return False
 
         # 3. 执行物理删除
-        status = _handle_netdisk_operation(client.__class__, client, None, operation="delete", file_id=file_id)
+        if file_id:
+            status = _handle_netdisk_operation(client.__class__, client, None, operation="delete", file_id=file_id)
+        else:
+            logger.info(f"[{netdisk_type}] 资源无需物理文件删除(无有效file_id)，直接清理本地记录: {share_url}")
+            status = True
 
         # 3. 逻辑删除（数据库记录清理：按 share_url 与 file_id 清理 resources 表）
         if status:
