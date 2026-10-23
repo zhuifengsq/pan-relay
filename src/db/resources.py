@@ -445,6 +445,49 @@ def update_resource_basic_info(resource_id: int, resource_data: Dict[str, Any]) 
         conn.close()
 
 
+def update_resources_origin_type(resource_ids: List[int], origin_type: str) -> Tuple[bool, str, int]:
+    """
+    批量更新资源的来源类型 (origin_type)。
+    当设置为 'manual' 或 'batch_import' 时，代表永久保留（免定时物理删除）；
+    当设置为 'relay' 时，代表临时中转（受保留期物理删除管控）。
+    同时同步更新 is_replaced 字段以保持与旧清理策略的一致性：
+    - origin_type == 'relay': is_replaced = 1
+    - origin_type != 'relay': is_replaced = 0 (永久保护)
+    """
+    if not resource_ids:
+        return True, "未指定资源ID", 0
+
+    if origin_type not in ("manual", "batch_import", "relay"):
+        return False, "无效的来源类型", 0
+
+    conn = get_db_connection()
+    if not conn:
+        return False, "数据库连接失败", 0
+
+    try:
+        cursor = conn.cursor()
+        placeholders = ",".join(["?"] * len(resource_ids))
+        new_is_replaced = 1 if origin_type == "relay" else 0
+        sql = f"""
+        UPDATE resources
+        SET origin_type = ?, is_replaced = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id IN ({placeholders})
+        """
+        params = [origin_type, new_is_replaced] + list(resource_ids)
+        cursor.execute(sql, params)
+        updated_rows = cursor.rowcount
+        conn.commit()
+        logger.info(f"成功更新 {updated_rows} 条资源的来源类型为 {origin_type}")
+        return True, "更新成功", updated_rows
+    except Error as err:
+        logger.error(f"批量更新资源来源类型出错: {err}")
+        conn.rollback()
+        return False, f"更新失败: {err}", 0
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def delete_resource_by_id(resource_id: int) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     """
     根据 ID 删除资源，同时返回被删除记录的 share_link 和 file_id，

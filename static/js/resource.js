@@ -45,6 +45,7 @@ const selectCurrentPageBtn = document.getElementById('selectCurrentPageBtn');
 const selectAllResourcesBtn = document.getElementById('selectAllResourcesBtn');
 const clearSelectionBtn = document.getElementById('clearSelectionBtn');
 const exportSelectedBtn = document.getElementById('exportSelectedBtn');
+const lockSelectedBtn = document.getElementById('lockSelectedBtn');
 const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
 const auditAllResourcesBtn = document.getElementById('auditAllResourcesBtn');
 const cleanupDeadResourcesBtn = document.getElementById('cleanupDeadResourcesBtn');
@@ -301,8 +302,7 @@ function updateResourceSortIcons() {
         'cloud_name': 'resourceSortIconCloudName',
         'type': 'resourceSortIconType',
         'health_status': 'resourceSortIconHealthStatus',
-        'origin_type': 'resourceSortIconOriginType',
-        'is_replaced': 'resourceSortIconIsReplaced'
+        'origin_type': 'resourceSortIconOriginType'
     };
 
     Object.entries(iconMap).forEach(([field, elementId]) => {
@@ -322,11 +322,11 @@ window.handleResourceSort = handleResourceSort;
 
 function renderOriginTypeBadge(origin) {
     if (origin === 'batch_import') {
-        return '<span class="origin-badge origin-badge-batch" title="批量导入资源（免定时物理删除）"><span class="origin-dot"></span>批量导入</span>';
+        return '<span class="origin-badge origin-badge-batch" title="批量导入资源（永久保留·免自动物理删除）"><span class="origin-dot"></span>批量导入</span>';
     } else if (origin === 'relay') {
-        return '<span class="origin-badge origin-badge-relay" title="系统转存资源（受保留期物理删除管控）"><span class="origin-dot"></span>自动转存</span>';
+        return '<span class="origin-badge origin-badge-relay" title="系统自动转存（临时中转·到期将自动清理网盘）"><span class="origin-dot"></span>自动转存</span>';
     }
-    return '<span class="origin-badge origin-badge-manual" title="手动录入资源（免定时物理删除）"><span class="origin-dot"></span>手动录入</span>';
+    return '<span class="origin-badge origin-badge-manual" title="手动录入/已锁定资源（永久保留·免自动物理删除）"><span class="origin-dot"></span>永久保留</span>';
 }
 
 // 渲染表格
@@ -336,7 +336,7 @@ function renderTable() {
 
     if (!resourcesData || resourcesData.length === 0) {
         const emptyRow = document.createElement('tr');
-        emptyRow.innerHTML = '<td colspan="10" class="text-center">暂无数据</td>';
+        emptyRow.innerHTML = '<td colspan="9" class="text-center">暂无数据</td>';
         resourcesTableBody.appendChild(emptyRow);
         return;
     }
@@ -359,7 +359,6 @@ function renderTable() {
             <td>${resource.type || '-'}</td>
             <td>${renderHealthStatusBadge(resource.health_status, resource.health_message, resource.checked_at)}</td>
             <td>${renderOriginTypeBadge(resource.origin_type)}</td>
-            <td>${resource.is_replaced ? '<span class="status-synced">已同步</span>' : '-'}</td>
             <td class="col-sticky-action text-center">
                 <div class="action-buttons">
                     <button class="btn btn-secondary btn-sm copy-btn" data-id="${resource.id}" title="复制标题与链接">
@@ -377,8 +376,19 @@ function renderTable() {
                                 </a>
                             </li>
                             <li>
+                                ${resource.origin_type === 'relay' ? `
+                                    <a class="dropdown-item toggle-lock-btn text-blue-600" href="javascript:void(0)" data-id="${resource.id}" data-target-origin="manual" title="锁定为永久保留，免定时物理删除">
+                                        <i class="fas fa-lock me-2 text-blue-500"></i> 设为永久保留
+                                    </a>
+                                ` : `
+                                    <a class="dropdown-item toggle-lock-btn text-slate-600" href="javascript:void(0)" data-id="${resource.id}" data-target-origin="relay" title="改为临时中转，按期自动清理释放网盘">
+                                        <i class="fas fa-unlock me-2 text-slate-400"></i> 设为临时中转
+                                    </a>
+                                `}
+                            </li>
+                            <li>
                                 <a class="dropdown-item edit-btn" href="javascript:void(0)" data-id="${resource.id}">
-                                    <i class="fas fa-edit me-2"></i> 编辑
+                                    <i class="fas fa-edit me-2 text-slate-400"></i> 编辑
                                 </a>
                             </li>
                             <li><hr class="dropdown-divider"></li>
@@ -523,6 +533,15 @@ function bindActionEvents() {
             checkResourceHealth(parseInt(btnEl.getAttribute('data-id'), 10), btnEl);
         });
     });
+    // 切换永久保留 / 临时中转
+    document.querySelectorAll('.toggle-lock-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const btnEl = e.currentTarget;
+            const resId = parseInt(btnEl.getAttribute('data-id'), 10);
+            const targetOrigin = btnEl.getAttribute('data-target-origin');
+            await setResourcesOrigin([resId], targetOrigin);
+        });
+    });
     // 编辑
     document.querySelectorAll('.edit-btn').forEach(btn => {
         btn.addEventListener('click', () => editResource(parseInt(btn.getAttribute('data-id'))));
@@ -593,6 +612,10 @@ function updateSelectionUI() {
 
     if (exportSelectedBtn) {
         exportSelectedBtn.disabled = selectedCount === 0;
+    }
+
+    if (lockSelectedBtn) {
+        lockSelectedBtn.disabled = selectedCount === 0;
     }
 
     if (deleteSelectedBtn) {
@@ -1332,6 +1355,54 @@ async function deleteSelectedResources() {
     }
 }
 
+// 设置资源来源（锁定为永久保留 / 设为临时中转）
+async function setResourcesOrigin(resourceIds, targetOrigin) {
+    if (!resourceIds || resourceIds.length === 0) return;
+
+    try {
+        const resp = await fetch('/admin/api/resources/set-origin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ids: resourceIds,
+                origin_type: targetOrigin
+            })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            showToast(data.message || '操作成功', 'success');
+            await loadResources();
+        } else {
+            showToast(data.message || '操作失败', 'danger');
+        }
+    } catch (err) {
+        console.error(err);
+        showToast('请求异常: ' + err.message, 'danger');
+    }
+}
+
+// 批量锁定为永久保留
+async function lockSelectedResources() {
+    const selectedIds = Array.from(selectedResourceMap.keys());
+    if (selectedIds.length === 0) {
+        showToast('请先选择要操作的资源', 'warning');
+        return;
+    }
+
+    if (lockSelectedBtn) {
+        lockSelectedBtn.disabled = true;
+    }
+
+    try {
+        await setResourcesOrigin(selectedIds, 'manual');
+        clearResourceSelection();
+    } finally {
+        if (lockSelectedBtn) {
+            lockSelectedBtn.disabled = false;
+        }
+    }
+}
+
 // ==========================================
 // 8. 初始化入口 (统一)
 // ==========================================
@@ -1384,6 +1455,7 @@ function initResourcePage() {
     if (selectCurrentPageBtn) selectCurrentPageBtn.addEventListener('click', selectCurrentPageResources);
     if (selectAllResourcesBtn) selectAllResourcesBtn.addEventListener('click', selectAllResources);
     if (clearSelectionBtn) clearSelectionBtn.addEventListener('click', clearResourceSelection);
+    if (lockSelectedBtn) lockSelectedBtn.addEventListener('click', lockSelectedResources);
     if (exportSelectedBtn) exportSelectedBtn.addEventListener('click', exportSelectedResources);
     if (deleteSelectedBtn) deleteSelectedBtn.addEventListener('click', deleteSelectedResources);
 

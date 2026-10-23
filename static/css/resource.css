@@ -276,8 +276,11 @@
     z-index: 8;
 }
 
-.data-table-shell .table tbody tr:hover td.col-sticky-action {
+.data-table-shell .table tbody tr:hover td.col-sticky-action,
+.data-table-shell .table tbody td.col-sticky-action:focus-within,
+.data-table-shell .table tbody td.col-sticky-action:has(.dropdown-menu.show) {
     background-color: #f8fafc;
+    z-index: 50;
 }
 
 .resource-link-cell {
@@ -404,6 +407,7 @@ textarea::placeholder {
 }
 
 .action-buttons .dropdown {
+    position: relative;
     width: auto;
     flex: 0 0 auto;
 }

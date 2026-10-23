@@ -139,6 +139,35 @@ def cleanup_dead_resources_route():
     return jsonify({"success": True, "message": msg, "data": result})
 
 
+@resources_bp.route("/admin/api/resources/set-origin", methods=["POST"])
+@token_required
+def set_resources_origin_route():
+    """批量或单条设置资源来源类型（实现防删锁定 / 设为永久保留 / 设为临时中转）"""
+    from src.db.resources import update_resources_origin_type
+
+    payload = request.get_json(silent=True) or {}
+    ids = payload.get("ids")
+    origin_type = payload.get("origin_type", "manual")
+
+    if not ids or not isinstance(ids, list):
+        return jsonify({"success": False, "message": "ids 必须为非空资源ID列表"}), 400
+
+    if origin_type not in ("manual", "batch_import", "relay"):
+        return jsonify({"success": False, "message": "无效的来源类型"}), 400
+
+    success, message, count = update_resources_origin_type(ids, origin_type)
+    if not success:
+        return jsonify({"success": False, "message": message}), 500
+
+    action_label = "设为永久保留（免自动清理）" if origin_type in ("manual", "batch_import") else "设为临时中转（受保留期物理删除管控）"
+    return jsonify({
+        "success": True,
+        "message": f"成功将 {count} 项资源{action_label}",
+        "count": count,
+        "origin_type": origin_type
+    })
+
+
 @resources_bp.route("/admin/api/resources/health-stats", methods=["GET"])
 @token_required
 def get_resource_health_stats_route():
