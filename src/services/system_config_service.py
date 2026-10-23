@@ -28,12 +28,12 @@ FRONTEND_LINK_CHECK_CONFIG_KEY = "frontend_link_check_config"
 SECURITY_CONFIG_KEY = "security_config"
 ENABLE_PC_QR_CODE_KEY = "enable_pc_qr_code"
 ENABLE_FRONTEND_GITHUB_KEY = "enable_frontend_github"
-DEFAULT_FRONTEND_FOOTER_TEXT = "Pan-Relay 发现海量网盘资源"
+DEFAULT_FRONTEND_FOOTER_TEXT = "夏琦搜索 发现海量网盘资源"
 LEGACY_DEFAULT_FRONTEND_FOOTER_TEXT = "Pan-Relay 聚合分发中枢 · 极速流式引擎"
 FRONTEND_DISCLAIMER_TEXT_KEY = "frontend_disclaimer_text"
 DEFAULT_FRONTEND_DISCLAIMER_TEXT = "您的请求将通过第三方搜索引擎（如 Google、Bing、百度）获取原始数据，页面内容由系统自动整理与美化生成。本站不产生、不存储任何资源内容，亦未参与录制或上传。若相关结果侵犯您的合法权益，请联系我们，我们将在核实后尽快处理。"
 FRONTEND_COPYRIGHT_TEXT_KEY = "frontend_copyright_text"
-DEFAULT_FRONTEND_COPYRIGHT_TEXT = "© 2026 PAN-RELAY. All rights reserved."
+DEFAULT_FRONTEND_COPYRIGHT_TEXT = "© 2026 夏琦搜索. All rights reserved."
 ENABLE_RESOURCE_REQUEST_KEY = "enable_resource_request"
 HOT_SEARCHES_CONFIG_KEY = "hot_searches_config"
 
@@ -1438,7 +1438,7 @@ SITE_LOGO_KEY = "site_logo"
 SITE_NAME_KEY = "site_name"
 FRONTEND_SEO_CONFIG_KEY = "frontend_seo_config"
 DEFAULT_SITE_LOGO = "/static/images/hero_search_top.webp"
-DEFAULT_SITE_NAME = "Pan-Relay"
+DEFAULT_SITE_NAME = "夏琦搜索"
 DEFAULT_FRONTEND_SEO_CONFIG = {
     "home": {
         "title": "网盘资源搜索与聚合分发 - {site_name}",
@@ -1555,7 +1555,7 @@ def save_site_logo(logo_url: str) -> bool:
 
 
 def get_site_name() -> str:
-    """获取全局站点名称，默认 Pan-Relay"""
+    """获取全局站点名称，默认夏琦搜索"""
     raw_value = get_config_value(SITE_NAME_KEY)
     if not raw_value:
         return DEFAULT_SITE_NAME

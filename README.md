@@ -116,6 +116,8 @@ python app.py
 * **前台 Web 搜索**：[http://localhost:5004](http://localhost:5004)
 * **管理后台**：[http://localhost:5004/admin](http://localhost:5004/admin)（默认账号 `admin` / 密码 `admin123`）
 
+登录后可在 **系统配置 → 后台入口路径** 修改 `/admin`，保存后新地址立即生效，旧地址失效。请保存新地址以便下次登录；修改路径不替代账号密码保护。
+
 > 💡 **提示**：如需自定义后台账号密码，可复制 `cp .env.example .env` 后按需修改。
 
 > 📖 关于生产环境 Nginx 反代配置（SSE 支持）、SSL 证书与 SQLite 自动热备份，详见 [生产环境部署与运维手册](docs/deployment_guide.md)。

@@ -78,17 +78,6 @@ function switchSystemTab(target, updateHash = true) {
         pane.classList.toggle('is-active', pane.id === `tab-pane-${normalized}`);
     });
 
-    const container = document.getElementById('systemConfigContainer');
-    if (container) {
-        if (normalized === 'accounts') {
-            container.classList.remove('max-w-4xl');
-            container.classList.add('max-w-7xl');
-        } else {
-            container.classList.remove('max-w-7xl');
-            container.classList.add('max-w-4xl');
-        }
-    }
-
     if (normalized === 'accounts' && typeof loadCloudAccounts === 'function') {
         loadCloudAccounts();
     }
@@ -2116,7 +2105,7 @@ function renderStorageBarHtml(acc) {
         return `
             <div class="w-40 flex flex-col gap-1.5 py-0.5" title="该网盘平台暂不支持接口探测容量">
                 <div class="flex items-center justify-between text-[11px] leading-tight">
-                    <span class="text-slate-400 dark:text-slate-500 font-medium">不支持容量</span>
+                    <span class="text-slate-600 font-medium">不支持容量</span>
                     <span class="text-[10px] text-slate-400">--</span>
                 </div>
                 <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-700/60 rounded-full overflow-hidden">
@@ -2130,7 +2119,7 @@ function renderStorageBarHtml(acc) {
         return `
             <div class="w-40 flex flex-col gap-1.5 py-0.5" title="尚未成功探测空间，请点击操作栏中的体检按钮">
                 <div class="flex items-center justify-between text-[11px] leading-tight">
-                    <span class="text-slate-400 dark:text-slate-500 font-medium">未探测容量</span>
+                    <span class="text-slate-600 font-medium">未探测容量</span>
                     <span class="text-[10px] text-slate-400">--</span>
                 </div>
                 <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-700/60 rounded-full overflow-hidden">
@@ -2145,19 +2134,19 @@ function renderStorageBarHtml(acc) {
     const pct = Math.min(100, Math.round(((acc.used_space_bytes || 0) / acc.total_space_bytes) * 100));
 
     let barColorClass = 'bg-indigo-600 dark:bg-indigo-500';
-    let textColor = 'text-indigo-600 dark:text-indigo-400';
+    let textColor = 'text-indigo-700';
     if (pct > 90) {
         barColorClass = 'bg-rose-500 dark:bg-rose-500';
-        textColor = 'text-rose-600 dark:text-rose-400';
+        textColor = 'text-rose-700';
     } else if (pct > 75) {
         barColorClass = 'bg-amber-500 dark:bg-amber-500';
-        textColor = 'text-amber-600 dark:text-amber-400';
+        textColor = 'text-amber-700';
     }
 
     return `
         <div class="w-40 flex flex-col gap-1.5 py-0.5" title="已用: ${usedStr} / 总量: ${totalStr} (${pct}%)">
             <div class="flex items-center justify-between text-[11px] leading-tight">
-                <span class="font-semibold text-slate-700 dark:text-slate-200 truncate mr-1.5">${usedStr} <span class="font-normal text-slate-400 dark:text-slate-500 text-[10px]">/ ${totalStr}</span></span>
+                <span class="font-semibold text-slate-800 truncate mr-1.5">${usedStr} <span class="font-normal text-slate-600 text-[11px]">/ ${totalStr}</span></span>
                 <span class="font-bold text-[11px] ${textColor} flex-shrink-0">${pct}%</span>
             </div>
             <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-700/80 rounded-full overflow-hidden">
@@ -2191,14 +2180,14 @@ function renderAccountsTable(accounts) {
     }
 
     const cloudBadgeMap = {
-        '夸克网盘': 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300',
-        '百度网盘': 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300',
-        '阿里云盘': 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300',
-        'UC网盘': 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/40 dark:text-orange-300',
-        '迅雷网盘': 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/40 dark:text-sky-300',
-        '光鸭云盘': 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/40 dark:text-rose-300',
-        '悟空网盘': 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/40 dark:text-purple-300',
-        '移动云盘': 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300',
+        '夸克网盘': 'bg-indigo-50 text-indigo-800 border-indigo-200',
+        '百度网盘': 'bg-blue-50 text-blue-800 border-blue-200',
+        '阿里云盘': 'bg-amber-50 text-amber-800 border-amber-200',
+        'UC网盘': 'bg-orange-50 text-orange-800 border-orange-200',
+        '迅雷网盘': 'bg-sky-50 text-sky-800 border-sky-200',
+        '光鸭云盘': 'bg-rose-50 text-rose-800 border-rose-200',
+        '悟空网盘': 'bg-purple-50 text-purple-800 border-purple-200',
+        '移动云盘': 'bg-emerald-50 text-emerald-800 border-emerald-200',
     };
 
     let html = '';
@@ -2214,14 +2203,14 @@ function renderAccountsTable(accounts) {
         // 状态徽章
         let statusBadge = '';
         if (isTesting) {
-            statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 flex items-center gap-1 w-max"><i class="fas fa-spinner fa-spin text-[9px]"></i>测活中...</span>';
+            statusBadge = '<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 flex items-center gap-1 w-max"><i class="fas fa-spinner fa-spin text-[9px]"></i>测活中...</span>';
         } else if (!isActive) {
-            statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400">已停用</span>';
+            statusBadge = '<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">已停用</span>';
         } else if (isValid) {
-            statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 flex items-center gap-1 w-max"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>正常就绪</span>';
+            statusBadge = '<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 flex items-center gap-1 w-max"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>正常就绪</span>';
         } else {
             const reason = acc.invalid_reason ? escapeHtml(acc.invalid_reason) : '凭据失效';
-            statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 flex items-center gap-1 w-max cursor-help" title="${reason}"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>失效</span>`;
+            statusBadge = `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700 flex items-center gap-1 w-max cursor-help" title="${reason}"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>失效</span>`;
         }
 
         html += `
@@ -2232,9 +2221,9 @@ function renderAccountsTable(accounts) {
                     </span>
                 </td>
                 <td class="p-3.5 whitespace-nowrap">
-                    <div class="font-bold text-slate-800 dark:text-white text-xs">${escapeHtml(acc.account_name)}</div>
+                    <div class="font-bold text-slate-900 text-sm">${escapeHtml(acc.account_name)}</div>
                 </td>
-                <td class="p-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                <td class="p-3.5 text-slate-700 whitespace-nowrap">
                     ${acc.username ? `<span class="font-medium text-xs">${escapeHtml(acc.username)}</span>` : '<span class="text-slate-400">--</span>'}
                 </td>
                 <td class="p-3.5 whitespace-nowrap">
@@ -2250,15 +2239,15 @@ function renderAccountsTable(accounts) {
                     ${spaceHtml}
                 </td>
                 <td class="p-3.5 text-slate-500 whitespace-nowrap">
-                    <div class="flex flex-col text-[11px] gap-0.5">
-                        <span>优先级: <strong class="text-indigo-600 dark:text-indigo-400">${acc.priority}</strong></span>
+                    <div class="flex flex-col text-xs gap-0.5">
+                        <span>优先级: <strong class="text-indigo-700">${acc.priority}</strong></span>
                         <span>权  重: <strong>${acc.weight}</strong></span>
                     </div>
                 </td>
-                <td class="p-3.5 text-center font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                <td class="p-3.5 text-center font-bold text-slate-800 whitespace-nowrap">
                     ${acc.transferred_count || 0}
                 </td>
-                <td class="p-3.5 text-slate-400 text-[11px] whitespace-nowrap">
+                <td class="p-3.5 text-slate-600 text-xs whitespace-nowrap">
                     <div>用: ${acc.last_used_at ? acc.last_used_at.substring(5, 16) : '未调用'}</div>
                     <div>保: ${acc.last_keepalive_at ? acc.last_keepalive_at.substring(5, 16) : '未保活'}</div>
                 </td>

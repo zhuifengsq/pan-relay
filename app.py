@@ -117,6 +117,8 @@ app.register_blueprint(plugin_bp)
 app.register_blueprint(search_sources_bp)
 app.register_blueprint(api_v1_bp)
 app.register_blueprint(log_bp)
+from src.utils.admin_path_middleware import AdminPathMiddleware
+app.wsgi_app = AdminPathMiddleware(app.wsgi_app)
 start_scheduler()
 
 # 上下文处理器，将登录状态传递给所有模板

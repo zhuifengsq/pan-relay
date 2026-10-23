@@ -147,7 +147,7 @@
                         </div>
                         <div class="flex items-center gap-2">
                             <input type="text" id="siteNameInput" value="{{ current_site_name }}"
-                                placeholder="例如: Pan-Relay 聚合分发"
+                                placeholder="例如: 夏琦搜索"
                                 class="form-control text-xs bg-white border-slate-300 flex-1"
                                 oninput="scheduleSiteBrandingSave()"
                                 onblur="saveSiteBranding(true)">
@@ -230,7 +230,7 @@
                         <div class="frontend-inline-setting-control flex items-center gap-3 flex-1 max-w-xl">
                             <input type="text" id="frontendFooterTextInput"
                                 class="form-control text-xs bg-white border-slate-300 flex-1 transition-opacity {% if not enable_frontend_footer_text %}opacity-50{% endif %}"
-                                placeholder="Pan-Relay 发现海量网盘资源"
+                                placeholder="夏琦搜索 发现海量网盘资源"
                                 value="{{ frontend_footer_text }}"
                                 {% if not enable_frontend_footer_text %}disabled{% endif %}
                                 oninput="scheduleFrontendFooterTextSave()"

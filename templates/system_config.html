@@ -5,7 +5,7 @@
 
 {% block content %}
 <div id="systemConfigContainer"
-    class="{{ 'max-w-7xl' if current_tab == 'accounts' else 'max-w-4xl' }} mx-auto space-y-6 transition-[max-width] duration-200">
+    class="max-w-7xl mx-auto space-y-6">
     <!-- Page Header (ucmao admin_modern style) -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
@@ -13,6 +13,19 @@
             <p class="text-xs text-slate-500 mt-0.5">管理网盘转存目录、引流植入、存储周期清理、敏感词风控与云盘自动转存凭证</p>
         </div>
     </div>
+
+    <section class="admin-panel">
+        <div class="admin-panel-header">
+            <div class="admin-panel-title-area">
+                <h2 class="admin-panel-title"><i class="fas fa-link text-indigo-600"></i> 后台入口路径</h2>
+                <p class="admin-panel-desc">保存后立即使用新地址，旧后台地址随即失效</p>
+            </div>
+        </div>
+        <div class="admin-panel-body flex flex-col sm:flex-row gap-3 sm:items-center">
+            <input id="adminPathInput" class="form-control font-mono" type="text" maxlength="41" placeholder="/my-console" autocomplete="off" aria-label="后台入口路径">
+            <button id="saveAdminPathBtn" type="button" class="btn btn-primary whitespace-nowrap">保存入口路径</button>
+        </div>
+    </section>
 
     <!-- 分段控制 Tab 导航 -->
     <div class="source-tabs-header">
@@ -734,9 +747,9 @@
                     <!-- 账号数据表格 -->
                     <div
                         class="account-table-wrap overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700 shadow-2xs">
-                        <table class="w-full text-left text-xs border-collapse min-w-[1000px]">
+                        <table class="w-full text-left text-sm border-collapse min-w-[1000px]">
                             <thead
-                                class="bg-slate-50/90 dark:bg-slate-800/90 text-slate-500 font-semibold border-b border-slate-200/80 dark:border-slate-700">
+                                class="font-semibold border-b border-slate-600">
                                 <tr>
                                     <th class="p-3.5 pl-4 whitespace-nowrap">网盘平台</th>
                                     <th class="p-3.5 whitespace-nowrap">账号备注</th>
@@ -953,6 +966,36 @@
             position: relative;
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
+            background-color: #ffffff;
+        }
+
+        #tab-pane-accounts .account-table-wrap thead,
+        #tab-pane-accounts .account-table-wrap thead th.account-table-sticky-col,
+        .dark #tab-pane-accounts .account-table-wrap thead th.account-table-sticky-col {
+            background-color: #334155;
+            color: #f8fafc;
+        }
+
+        #tab-pane-accounts .account-table-wrap tbody tr {
+            background-color: #ffffff;
+        }
+
+        #tab-pane-accounts .account-table-wrap tbody tr:hover {
+            background-color: #f8fafc;
+        }
+
+        #tab-pane-accounts .account-table-wrap tbody td {
+            color: #334155;
+        }
+
+        #tab-pane-accounts .account-table-wrap tbody td.account-table-sticky-col,
+        .dark #tab-pane-accounts .account-table-wrap tbody td.account-table-sticky-col {
+            background-color: #ffffff;
+        }
+
+        #tab-pane-accounts .account-table-wrap tbody tr:hover td.account-table-sticky-col,
+        .dark #tab-pane-accounts .account-table-wrap tbody tr:hover td.account-table-sticky-col {
+            background-color: #f8fafc;
         }
 
         .account-table-sticky-col {
@@ -969,11 +1012,11 @@
 
         thead th.account-table-sticky-col {
             z-index: 20;
-            background-color: #f8fafc;
+            background-color: #334155;
         }
 
         .dark thead th.account-table-sticky-col {
-            background-color: #1e293b;
+            background-color: #334155;
         }
 
         tr:hover td.account-table-sticky-col {
@@ -992,5 +1035,34 @@
     {% block scripts %}
     {{ super() }}
     <script src="{{ url_for('static', filename='js/utils.js') }}?v=2.1.5"></script>
-    <script src="{{ url_for('static', filename='js/system_config.js') }}?v=2.1.5"></script>
+    <script src="{{ url_for('static', filename='js/system_config.js') }}?v=2.1.7"></script>
+    <script>
+    (async () => {
+        const input = document.getElementById('adminPathInput');
+        const button = document.getElementById('saveAdminPathBtn');
+        try {
+            const response = await fetch('/admin/api/admin-path');
+            const data = await response.json();
+            if (data.success) input.value = data.path;
+        } catch (error) {
+            input.placeholder = '读取入口路径失败';
+        }
+        button.addEventListener('click', async () => {
+            button.disabled = true;
+            try {
+                const response = await fetch('/admin/api/admin-path', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({path: input.value.trim()})
+                });
+                const data = await response.json();
+                if (!data.success) throw new Error(data.message || '保存失败');
+                window.location.replace(data.path + '/system-config?tab=security');
+            } catch (error) {
+                alert(error.message || '保存失败');
+                button.disabled = false;
+            }
+        });
+    })();
+    </script>
     {% endblock %}

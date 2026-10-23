@@ -96,6 +96,23 @@ from src.utils.netdisk_utils import (
 
 system_config_bp = Blueprint("system_config", __name__)
 
+
+@system_config_bp.route("/admin/api/admin-path", methods=["GET", "PUT"])
+@token_required
+def admin_path_config_api():
+    from src.services.admin_path_service import get_admin_path, save_admin_path, validate_admin_path
+
+    if request.method == "GET":
+        return jsonify({"success": True, "path": get_admin_path()})
+    payload = request.get_json(silent=True) or {}
+    try:
+        new_path = validate_admin_path(payload.get("path"))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error)}), 400
+    if not save_admin_path(new_path):
+        return jsonify({"success": False, "message": "保存失败"}), 500
+    return jsonify({"success": True, "path": new_path})
+
 DYNAMIC_TRANSFER_STATUS_CONFIGS = [
     {
         "cloud_name": "百度网盘",
