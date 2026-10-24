@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 import logging
 
 from src.utils.auth_utils import token_required
+from src.utils.api_headers import serialize_api_headers
 from src.services.api_config_service import (
     read_api_configs_from_db,
     add_api_config_to_db,
@@ -36,6 +37,12 @@ def get_api_configs():
 def add_api_config():
     """新增一条 API 配置 (需要 JWT 验证)"""
     new_config = request.get_json()
+    if not isinstance(new_config, dict):
+        return jsonify({"message": "请求体必须是 JSON 对象"}), 400
+    try:
+        new_config["headers"] = serialize_api_headers(new_config.get("headers"))
+    except (AttributeError, ValueError) as exc:
+        return jsonify({"message": str(exc)}), 400
     success, message, new_id = add_api_config_to_db(new_config)
     if not success:
         return jsonify({"message": message}), 500
@@ -58,6 +65,13 @@ def copy_api_config(api_id):
 def update_api_config(api_id):
     """更新一条 API 配置 (需要 JWT 验证)"""
     updated_config = request.get_json()
+    if not isinstance(updated_config, dict):
+        return jsonify({"message": "请求体必须是 JSON 对象"}), 400
+    try:
+        if "headers" in updated_config:
+            updated_config["headers"] = serialize_api_headers(updated_config["headers"])
+    except (AttributeError, ValueError) as exc:
+        return jsonify({"message": str(exc)}), 400
     success, message = update_api_config_in_db(api_id, updated_config)
     if not success:
         # 根据 message 内容返回合适的状态码
@@ -123,8 +137,14 @@ def disable_all_apis():
 def test_api():
     """测试单个 API (需要 JWT 验证)"""
     api_config = request.get_json()
-    api_id = api_config.get("id", "未知ID") if isinstance(api_config, dict) else "未知ID"
-    logger.info(f"开始测试单个 API，配置: {api_config}")
+    if not isinstance(api_config, dict):
+        return jsonify({"error": "请求体必须是 JSON 对象"}), 400
+    api_id = api_config.get("id", "未知ID")
+    try:
+        api_config["headers"] = serialize_api_headers(api_config.get("headers"))
+    except (AttributeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    logger.info("开始测试单个 API，ID: %s，名称: %s", api_id, api_config.get("name"))
     test_result = test_single_api(api_id, api_config, return_details=True)
     url, new_status, status_code, response_rule_status, response_time_ms = test_result[:5]
     if len(test_result) >= 8:

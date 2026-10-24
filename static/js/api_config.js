@@ -127,6 +127,7 @@ function getApiDataFromModal(prefix) {
     const name = document.getElementById(`${prefix}Name`).value;
     const url = document.getElementById(`${prefix}Url`).value;
     const request = document.getElementById(`${prefix}Request`).value;
+    const headers = document.getElementById(`${prefix}Headers`).value.trim();
     const responseMapping = document.getElementById(`${prefix}Response`).value;
 
     if (!name || !url || !responseMapping) {
@@ -144,11 +145,25 @@ function getApiDataFromModal(prefix) {
         }
     }
 
+    if (headers) {
+        try {
+            const parsedHeaders = JSON.parse(headers);
+            if (!parsedHeaders || Array.isArray(parsedHeaders) || typeof parsedHeaders !== 'object' ||
+                Object.values(parsedHeaders).some(value => typeof value !== 'string')) {
+                throw new Error('请求头需为字符串键值的 JSON 对象');
+            }
+        } catch (e) {
+            showToast(`请求头 JSON 格式不正确：${e.message}`, 'danger');
+            return null;
+        }
+    }
+
     const api = {
         name: name,
         url: url,
         method: document.getElementById(`${prefix}Method`).value,
         request: request,
+        headers: headers || '{}',
         response: responseMapping,
         is_enabled: document.getElementById(`${prefix}IsEnabled`).value === 'true',
         id: isNewApi ? 0 : document.getElementById('editApiId').value,
@@ -893,6 +908,7 @@ function editApi(apiId) {
     document.getElementById('editApiUrl').value = api.url;
     document.getElementById('editApiMethod').value = api.method;
     document.getElementById('editApiRequest').value = api.request;
+    document.getElementById('editApiHeaders').value = api.headers && api.headers !== '{}' ? JSON.stringify(JSON.parse(api.headers), null, 2) : '';
     document.getElementById('editApiResponse').value = api.response;
     document.getElementById('editApiIsEnabled').value = api.is_enabled ? 'true' : 'false';
 

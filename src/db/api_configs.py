@@ -19,13 +19,13 @@ def get_all_configs(order_by_created: bool = True) -> List[Dict[str, Any]]:
     configs = []
     if order_by_created:
         query = (
-            "SELECT id, name, url, method, request, response, status, "
+            "SELECT id, name, url, method, request, headers, response, status, "
             "is_enabled, response_time_ms, checked_at, created_at, updated_at "
             "FROM api_config ORDER BY created_at DESC"
         )
     else:
         query = (
-            "SELECT id, name, url, method, request, response, status, "
+            "SELECT id, name, url, method, request, headers, response, status, "
             "is_enabled, response_time_ms FROM api_config"
         )
 
@@ -41,6 +41,7 @@ def get_all_configs(order_by_created: bool = True) -> List[Dict[str, Any]]:
                 "url": row["url"],
                 "method": row["method"],
                 "request": row["request"] if row["request"] is not None else "{}",
+                "headers": row["headers"] if row["headers"] is not None else "{}",
                 "response": row["response"] if row["response"] is not None else "[]",
                 "status": str(row["status"]) if row["status"] is not None else "unknown",
                 "is_enabled": bool(row["is_enabled"]),
@@ -126,14 +127,15 @@ def insert_config(new_config: Dict[str, Any]) -> Tuple[bool, str, Optional[int]]
     status_str = _normalize_status_str(new_config.get("status", "unknown"))
 
     query = (
-        "INSERT INTO api_config (name, url, method, request, response, status, "
-        "is_enabled, response_time_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO api_config (name, url, method, request, headers, response, status, "
+        "is_enabled, response_time_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     params = (
         new_config["name"],
         new_config["url"],
         new_config["method"],
         new_config.get("request", "{}"),
+        new_config.get("headers", "{}"),
         new_config.get("response", "[]"),
         status_str,
         1 if new_config.get("is_enabled", True) else 0,
@@ -163,7 +165,7 @@ def copy_config(api_id: int) -> Tuple[bool, str, Optional[int]]:
         return False, "数据库连接失败", None
 
     select_query = (
-        "SELECT name, url, method, request, response, status, is_enabled, response_time_ms "
+        "SELECT name, url, method, request, headers, response, status, is_enabled, response_time_ms "
         "FROM api_config WHERE id = ?"
     )
 
@@ -178,14 +180,15 @@ def copy_config(api_id: int) -> Tuple[bool, str, Optional[int]]:
 
         new_name = f"{original_config['name']}_副本"
         insert_query = (
-            "INSERT INTO api_config (name, url, method, request, response, status, "
-            "is_enabled, response_time_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO api_config (name, url, method, request, headers, response, status, "
+            "is_enabled, response_time_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         insert_params = (
             new_name,
             original_config["url"],
             original_config["method"],
             original_config["request"],
+            original_config["headers"],
             original_config["response"],
             original_config["status"] or "unknown",
             original_config["is_enabled"],
@@ -217,6 +220,7 @@ def update_config(api_id: int, updated_config: Dict[str, Any]) -> Tuple[bool, st
     status_str = _normalize_status_str(
         updated_config.get("status", current_api_status.get("status", "unknown"))
     )
+    current_headers = (get_config_by_id(api_id) or {}).get("headers", "{}")
 
     conn = get_db_connection()
     if not conn:
@@ -224,7 +228,7 @@ def update_config(api_id: int, updated_config: Dict[str, Any]) -> Tuple[bool, st
 
     query = """
     UPDATE api_config 
-    SET name = ?, url = ?, method = ?, request = ?, response = ?, status = ?, is_enabled = ?
+    SET name = ?, url = ?, method = ?, request = ?, headers = ?, response = ?, status = ?, is_enabled = ?
     WHERE id = ?
     """
     params = (
@@ -232,6 +236,7 @@ def update_config(api_id: int, updated_config: Dict[str, Any]) -> Tuple[bool, st
         updated_config["url"],
         updated_config["method"],
         updated_config.get("request", "{}"),
+        updated_config.get("headers", current_headers),
         updated_config.get("response", "[]"),
         status_str,
         1 if new_is_enabled else 0,

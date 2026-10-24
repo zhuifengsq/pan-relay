@@ -186,6 +186,13 @@
                         </div>
                     </div>
 
+                    <!-- 自定义请求头（例如需要 Bearer Token 的搜索源） -->
+                    <div class="bg-slate-50/70 p-4 rounded-xl border border-slate-200/70 space-y-3">
+                        <label for="apiHeaders" class="block text-xs font-bold text-slate-800">请求头配置 (JSON，可选)</label>
+                        <textarea class="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-xs text-slate-800" id="apiHeaders" rows="2" placeholder='{"Authorization":"Bearer 你的Token"}'></textarea>
+                        <p class="text-xs text-slate-500">用于需要 Authorization 等请求头的接口；留空则不添加。</p>
+                    </div>
+
                     <!-- 分组 3: 响应解析规则 -->
                     <div class="bg-slate-50/70 p-4 rounded-xl border border-slate-200/70 space-y-3">
                         <div class="flex items-center justify-between">
@@ -296,6 +303,13 @@
                         <div>
                             <textarea class="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-xs text-slate-800" id="editApiRequest" rows="3" placeholder='POST 请求可留空或配置 JSON，例如：{"text": "[[keyword]]"}'></textarea>
                         </div>
+                    </div>
+
+                    <!-- 自定义请求头（例如需要 Bearer Token 的搜索源） -->
+                    <div class="bg-slate-50/70 p-4 rounded-xl border border-slate-200/70 space-y-3">
+                        <label for="editApiHeaders" class="block text-xs font-bold text-slate-800">请求头配置 (JSON，可选)</label>
+                        <textarea class="w-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-xs text-slate-800" id="editApiHeaders" rows="2" placeholder='{"Authorization":"Bearer 你的Token"}'></textarea>
+                        <p class="text-xs text-slate-500">用于需要 Authorization 等请求头的接口；留空则不添加。</p>
                     </div>
 
                     <!-- 分组 3: 响应解析规则 -->

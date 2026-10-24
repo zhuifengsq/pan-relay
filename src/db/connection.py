@@ -99,8 +99,12 @@ _db_initialized = False
 
 
 def _migrate_schema_columns(conn: sqlite3.Connection):
-    """确保 resources 与 temp_share 包含必要的字段结构"""
+    """确保现有数据库包含新增字段。"""
     try:
+        api_cols = [row[1] for row in conn.execute("PRAGMA table_info(api_config);").fetchall()]
+        if api_cols and "headers" not in api_cols:
+            conn.execute("ALTER TABLE api_config ADD COLUMN headers TEXT NOT NULL DEFAULT '{}';")
+
         # 1. 检查 resources 字段
         res_cols = [row[1] for row in conn.execute("PRAGMA table_info(resources);").fetchall()]
         if res_cols:

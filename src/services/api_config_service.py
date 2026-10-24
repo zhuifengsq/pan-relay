@@ -7,6 +7,7 @@ import jmespath
 import requests
 
 from src.utils.test_keywords import build_test_keywords
+from src.utils.api_headers import parse_api_headers
 
 from src.db.api_configs import (
     get_all_configs,
@@ -100,15 +101,16 @@ def _request_api(api_config):
     method = api_config["method"].lower()
     url = api_config.get("url", "未知 URL")
     request_body = api_config.get("request", "{}")
+    headers = parse_api_headers(api_config.get("headers"))
 
     if method == "get":
         try:
             request_params = json.loads(request_body)
-            return requests.get(url, params=request_params, verify=False, timeout=5)
+            return requests.get(url, params=request_params, headers=headers, verify=False, timeout=5)
         except json.JSONDecodeError:
-            return requests.get(url, verify=False, timeout=5)
+            return requests.get(url, headers=headers, verify=False, timeout=5)
     if method == "post":
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", **headers}
         return requests.post(url, data=request_body, headers=headers, verify=False, timeout=5)
     raise ValueError(f"不支持的 HTTP 方法: {method}")
 

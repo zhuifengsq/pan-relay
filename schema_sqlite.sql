@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS api_config (
   url TEXT NOT NULL,
   method TEXT NOT NULL,
   request TEXT DEFAULT NULL,
+  headers TEXT NOT NULL DEFAULT '{}',
   response TEXT DEFAULT NULL,
   status INTEGER NOT NULL DEFAULT 0,
   response_time_ms INTEGER DEFAULT 0,

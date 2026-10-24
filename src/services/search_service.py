@@ -25,6 +25,7 @@ from src.utils.netdisk_utils import (
     extract_password_from_url,
     parse_netdisk_names,
 )
+from src.utils.api_headers import parse_api_headers
 from src.services.log_service import record_log, get_current_client_ip
 
 import threading
@@ -112,12 +113,13 @@ def read_all_api_configs_from_db():
 read_api_configs = read_all_api_configs_from_db
 
 
-def fetch_data(url, method, request_data, timeout=10):
+def fetch_data(url, method, request_data, timeout=10, request_headers=None):
     """根据配置发起 HTTP 请求并返回响应内容。"""
     headers = {
         "User-Agent": random.choice(user_agents),
         "Content-Type": "application/json",
     }
+    headers.update(parse_api_headers(request_headers))
 
     try:
         data_obj = json.loads(request_data) if request_data else None
@@ -498,7 +500,10 @@ def process_config(config, keyword, timeout=10):
     final_results = []
 
     try:
-        response_data = fetch_data(config["url"], config["method"], config["request"], timeout=timeout)
+        response_data = fetch_data(
+            config["url"], config["method"], config["request"],
+            timeout=timeout, request_headers=config.get("headers"),
+        )
 
         if response_data is not None:
             extracted_data = extract_from_json(response_data, config["response"])
