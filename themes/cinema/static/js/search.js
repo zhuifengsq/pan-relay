@@ -13,6 +13,7 @@
   let searchGeneration = 0;
   const itemsPerPage = 10;
   let currentPage = 1;
+  const defaultDescription = "本站不产生、不存储任何资源内容，亦未参与录制或上传。若相关结果侵犯您的合法权益，请联系我们，我们将在核实后尽快处理。";
 
   const resultsList = document.getElementById("resultsList");
   const serpPagination = document.getElementById("serpPagination");
@@ -301,15 +302,13 @@
       const pwdBadge = item.password
         ? `<span class="res-badge-pwd" title="提取码: ${escapeHtml(item.password)}">提取码: ${escapeHtml(item.password)}</span>`
         : "";
-      const sourceBadge = item.source === "hot"
-        ? `<span class="res-badge-hot">站长自建</span>`
-        : "";
-      const description = item.description && item.description.trim() && item.description.trim() !== item.title.trim()
+      const isInternalResource = ["hot", "internal"].includes(String(item.source || "").toLowerCase())
+        || ["internal", "hot"].includes(String(item.source_type || "").toLowerCase());
+      const description = !isInternalResource && item.description && item.description.trim() && item.description.trim() !== item.title.trim()
         ? item.description.trim()
-        : "本站不产生、不存储任何资源内容，亦未参与录制或上传。若相关结果侵犯您的合法权益，请联系我们，我们将在核实后尽快处理。";
+        : defaultDescription;
       const rawTimestamp = item.datetime && String(item.datetime).trim() ? String(item.datetime).trim() : "";
       const timestamp = rawTimestamp ? formatTimestamp(rawTimestamp) : "未知时间";
-      const sourceName = getSourceDisplayName(item.source, item.source_type, item.source_display);
       const linkMode = window.SEARCH_LINK_MODE || "view";
       const directProtocol = /^(magnet:|ed2k:|thunder:)/i.test(item.share_link);
       const actionLabel = linkMode === "view" && !directProtocol
@@ -323,7 +322,6 @@
               <img src="${iconUrl}" alt="${escapeHtml(item.cloud_name)}">
               <strong class="serp-item__cloud-name">${escapeHtml(item.cloud_name)}</strong>
               <span class="serp-item__timestamp">· ${escapeHtml(timestamp)}</span>
-              ${sourceBadge}
               ${pwdBadge}
             </div>
             <h2>
@@ -333,10 +331,6 @@
             </h2>
             <p class="serp-item__description" title="${escapeHtml(description)}">${escapeHtml(description)}</p>
             <div class="serp-meta serp-item__actions">
-              <span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
-                资源来自 ${escapeHtml(sourceName)}
-              </span>
               <a class="serp-action-pill action-btn-get" href="javascript:void(0)" data-title="${escapeHtml(item.title)}" data-url="${escapeHtml(item.share_link)}" data-cloud="${escapeHtml(item.cloud_name)}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3"></path><path d="M19 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"></path></svg>
                 ${actionLabel}
@@ -398,24 +392,6 @@
         updateStats();
         renderResults();
       });
-  }
-
-  function getSourceDisplayName(source, sourceType, sourceDisplay) {
-    const normalizedType = String(sourceType || "").trim().toLowerCase();
-    if (["api", "other"].includes(normalizedType) || normalizedType.startsWith("api:")) return "API";
-    if (["telegram", "tg"].includes(normalizedType) || /^(telegram|tg):/.test(normalizedType)) return "TG";
-    if (normalizedType === "plugin" || normalizedType.startsWith("plugin:")) return "插件";
-    if (["internal", "hot"].includes(normalizedType)) return "站长自建";
-
-    const display = String(sourceDisplay || "").trim();
-    if (["API", "TG", "插件", "站长自建"].includes(display)) return display;
-
-    const value = String(source || "").trim();
-    if (!value || /^(other|api)$/i.test(value) || /^api:/i.test(value)) return "API";
-    if (/^(hot|internal)$/i.test(value)) return "站长自建";
-    if (/telegram|\btg\b|电报/i.test(value)) return "TG";
-    if (/^plugin(?::|$)/i.test(value)) return "插件";
-    return "API";
   }
 
   function formatTimestamp(value) {
