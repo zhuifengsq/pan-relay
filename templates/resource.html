@@ -67,11 +67,17 @@
                         <button class="btn btn-outline-danger btn-sm" id="cleanupDeadResourcesBtn" type="button" title="一键清理标记为失效的死链与空资源">
                             <i class="fas fa-broom text-[10px]"></i> 清理失效
                         </button>
+                        <button class="btn btn-secondary btn-sm" id="selectAutoTransferredBtn" type="button" title="选中当前搜索结果中的全部自动转存资源（含其他分页）">
+                            <i class="fas fa-check-double text-[10px]"></i> 选中自动转存
+                        </button>
                         <button class="btn btn-primary btn-sm" id="addResourceBtn" data-ui-modal-target="#addResourceModal">
                             <i class="fas fa-plus text-[10px]"></i> 新增入库
                         </button>
                         <button type="button" class="btn btn-secondary btn-sm" id="batchImportResourceBtn" data-ui-modal-target="#batchAddResourceModal">
                             <i class="fas fa-layer-group text-[10px]"></i> 批量导入
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="excelImportResourceBtn" data-ui-modal-target="#excelImportResourceModal">
+                            <i class="fas fa-file-excel text-[10px]"></i> Excel 导入
                         </button>
                     </div>
                 </div>
@@ -368,6 +374,27 @@
         </div>
     </div>
 
+    <!-- Excel 资源导入 -->
+    <div class="modal fade" id="excelImportResourceModal" tabindex="-1" aria-labelledby="excelImportResourceModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="excelImportResourceModalLabel"><i class="fas fa-file-excel text-emerald-600 me-1"></i> Excel 导入资源</h5>
+                    <button type="button" class="btn-close" data-ui-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body space-y-3">
+                    <p class="text-xs text-slate-600">选择 .xlsx 文件。无表头时按 A 列标题、B 列链接读取；有表头时识别“标题/名称”和“链接/分享链接”。可选 C 列类型、D 列备注。只导入资源，不自动转存；重复链接会跳过。</p>
+                    <input type="file" id="resourceExcelFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="form-control text-xs" aria-label="选择 Excel 资源文件">
+                    <div id="resourceExcelImportResult" class="text-xs text-slate-700" role="status" aria-live="polite"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-ui-dismiss="modal">关闭</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="resourceExcelImportSubmitBtn">开始导入</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast 消息容器 -->
     <div aria-live="polite" aria-atomic="true" id="toastContainer"></div>
     
@@ -376,5 +403,5 @@
 {% block scripts %}
     {{ super() }}
     <script src="{{ url_for('static', filename='js/utils.js') }}?v=2.0.6"></script>
-    <script src="{{ url_for('static', filename='js/resource.js') }}?v=2.0.6"></script>
+    <script src="{{ url_for('static', filename='js/resource.js') }}?v=2.0.8"></script>
 {% endblock %}

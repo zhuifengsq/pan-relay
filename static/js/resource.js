@@ -49,6 +49,7 @@ const lockSelectedBtn = document.getElementById('lockSelectedBtn');
 const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
 const auditAllResourcesBtn = document.getElementById('auditAllResourcesBtn');
 const cleanupDeadResourcesBtn = document.getElementById('cleanupDeadResourcesBtn');
+const selectAutoTransferredBtn = document.getElementById('selectAutoTransferredBtn');
 const auditSelectedBtn = document.getElementById('auditSelectedBtn');
 const kpiHealthStats = document.getElementById('kpiHealthStats');
 
@@ -569,6 +570,7 @@ function toggleResourceSelection(resourceId, checked) {
         selectedResourceMap.delete(resourceId);
     }
 
+    resourceSelectMode = 'page';
     updateSelectionUI();
 }
 
@@ -594,12 +596,14 @@ function updateSelectionUI() {
     }
 
     const resourceScopeToggleLink = document.getElementById('resourceScopeToggleLink');
-    const isAll = resourceSelectMode === 'all';
+    const isAll = resourceSelectMode === 'all' || resourceSelectMode === 'relay';
     if (resourceScopeToggleLink) {
         if (selectedCount > 0 || isAll) {
             resourceScopeToggleLink.style.display = 'inline-flex';
             if (isAll) {
-                resourceScopeToggleLink.textContent = '(切换为仅选本页)';
+                resourceScopeToggleLink.textContent = resourceSelectMode === 'relay'
+                    ? '(仅自动转存 · 切换为本页)'
+                    : '(切换为仅选本页)';
                 resourceScopeToggleLink.onclick = selectCurrentPageResources;
             } else {
                 resourceScopeToggleLink.textContent = `(全选全部 ${totalCount} 条)`;
@@ -1201,6 +1205,57 @@ async function batchSaveResources() {
     }
 }
 
+async function importResourcesExcel() {
+    const fileInput = document.getElementById('resourceExcelFile');
+    const submitBtn = document.getElementById('resourceExcelImportSubmitBtn');
+    const resultEl = document.getElementById('resourceExcelImportResult');
+    const file = fileInput?.files?.[0];
+    if (!file) {
+        showToast('请选择 Excel 文件', 'warning');
+        return;
+    }
+    if (!file.name.toLowerCase().endsWith('.xlsx') || file.size > 5 * 1024 * 1024) {
+        showToast('请选择不超过 5 MB 的 .xlsx 文件', 'warning');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    submitBtn.disabled = true;
+    submitBtn.textContent = '正在导入...';
+    resultEl.textContent = '';
+    try {
+        const response = await fetch('/admin/api/resources/import-excel', { method: 'POST', body: formData });
+        const data = await response.json();
+        resultEl.textContent = data.message || '导入失败';
+        if (Array.isArray(data.errors) && data.errors.length) {
+            const list = document.createElement('ul');
+            list.className = 'list-disc pl-5 mt-2 space-y-1 text-rose-700';
+            data.errors.forEach(message => {
+                const item = document.createElement('li');
+                item.textContent = message;
+                list.appendChild(item);
+            });
+            resultEl.appendChild(list);
+        }
+        if (data.success) {
+            fileInput.value = '';
+            currentPage = 1;
+            loadResources();
+            loadHealthStats();
+            showToast(data.message, data.failed ? 'warning' : 'success');
+        } else {
+            showToast(data.message || '导入失败', 'danger');
+        }
+    } catch (error) {
+        resultEl.textContent = '导入请求失败，请稍后重试';
+        showToast(resultEl.textContent, 'danger');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '开始导入';
+    }
+}
+
 // ==========================================
 // 7. 导出功能 (CSV)
 // ==========================================
@@ -1240,7 +1295,7 @@ async function fetchAllResourcesForCurrentSearch() {
     const firstResponse = await fetch(`/admin/api/resources?page=1&page_size=${pageSize}&search=${encodeURIComponent(searchKeyword)}`);
     const firstData = await firstResponse.json();
 
-    if (!firstData.success) {
+    if (!firstResponse.ok || !firstData.success) {
         throw new Error(firstData.message || '获取资源失败');
     }
 
@@ -1253,7 +1308,10 @@ async function fetchAllResourcesForCurrentSearch() {
             promises.push(
                 fetch(`/admin/api/resources?page=${i}&page_size=${pageSize}&search=${encodeURIComponent(searchKeyword)}`)
                     .then(response => response.json())
-                    .then(data => data.success ? data.data.items : [])
+                    .then(data => {
+                        if (!data.success) throw new Error(data.message || '获取资源失败');
+                        return data.data.items;
+                    })
             );
         }
 
@@ -1264,6 +1322,36 @@ async function fetchAllResourcesForCurrentSearch() {
     }
 
     return allItems;
+}
+
+async function selectAutoTransferredResources() {
+    if (!selectAutoTransferredBtn) return;
+    const originalHtml = selectAutoTransferredBtn.innerHTML;
+    selectAutoTransferredBtn.disabled = true;
+    selectAutoTransferredBtn.innerHTML = '<i class="fas fa-spinner fa-spin text-[10px]"></i> 正在选择...';
+
+    try {
+        const allItems = await fetchAllResourcesForCurrentSearch();
+        const relayItems = allItems.filter(resource => resource.origin_type === 'relay');
+        if (relayItems.length === 0) {
+            showToast('当前搜索结果中没有自动转存资源', 'info');
+            return;
+        }
+
+        selectedResourceMap.clear();
+        relayItems.forEach(resource => selectedResourceMap.set(resource.id, resource));
+        resourceSelectMode = 'relay';
+        document.querySelectorAll('.resource-row-checkbox').forEach(checkbox => {
+            checkbox.checked = selectedResourceMap.has(Number(checkbox.dataset.id));
+        });
+        updateSelectionUI();
+        showToast(`已选中 ${relayItems.length} 条自动转存资源`, 'success');
+    } catch (error) {
+        showToast('选择自动转存资源失败: ' + error.message, 'danger');
+    } finally {
+        selectAutoTransferredBtn.disabled = false;
+        selectAutoTransferredBtn.innerHTML = originalHtml;
+    }
 }
 
 async function selectAllResources() {
@@ -1454,6 +1542,7 @@ function initResourcePage() {
 
     if (selectCurrentPageBtn) selectCurrentPageBtn.addEventListener('click', selectCurrentPageResources);
     if (selectAllResourcesBtn) selectAllResourcesBtn.addEventListener('click', selectAllResources);
+    if (selectAutoTransferredBtn) selectAutoTransferredBtn.addEventListener('click', selectAutoTransferredResources);
     if (clearSelectionBtn) clearSelectionBtn.addEventListener('click', clearResourceSelection);
     if (lockSelectedBtn) lockSelectedBtn.addEventListener('click', lockSelectedResources);
     if (exportSelectedBtn) exportSelectedBtn.addEventListener('click', exportSelectedResources);
@@ -1651,6 +1740,7 @@ function initResourcePage() {
     if (saveResourceBtn) saveResourceBtn.addEventListener('click', saveResource);
     if (updateResourceBtn) updateResourceBtn.addEventListener('click', updateResource);
     if (batchSaveResourceBtn) batchSaveResourceBtn.addEventListener('click', batchSaveResources);
+    document.getElementById('resourceExcelImportSubmitBtn')?.addEventListener('click', importResourcesExcel);
 }
 
 // 暴露全局方法确保模态框与内联事件始终可用

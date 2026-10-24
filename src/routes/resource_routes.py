@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, render_template, request
 import logging
+from zipfile import BadZipFile
 
 from src.utils.auth_utils import token_required
 from src.services.resource_service import (
@@ -9,6 +10,7 @@ from src.services.resource_service import (
     update_resource_info,
     delete_resource_and_share,
 )
+from src.services.resource_excel_service import MAX_FILE_BYTES, ResourceExcelError, parse_resource_excel
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,48 @@ def add_resource():
         status = 400 if "必填项" in message else 500 if "数据库" in message else 500
         return jsonify({"success": False, "message": message}), status
     return jsonify({"success": True, "message": message, "id": new_id}), 201
+
+
+@resources_bp.route("/admin/api/resources/import-excel", methods=["POST"])
+@token_required
+def import_resources_excel():
+    """Import resource titles and links from an uploaded .xlsx workbook."""
+    upload = request.files.get("file")
+    if not upload or not (upload.filename or "").lower().endswith(".xlsx"):
+        return jsonify({"success": False, "message": "请选择 .xlsx 文件"}), 400
+
+    content = upload.stream.read(MAX_FILE_BYTES + 1)
+    try:
+        resources, errors = parse_resource_excel(content)
+    except (ResourceExcelError, BadZipFile) as exc:
+        message = str(exc) if isinstance(exc, ResourceExcelError) else "文件不是有效的 .xlsx 工作簿"
+        return jsonify({"success": False, "message": message}), 400
+
+    if not resources:
+        return jsonify({"success": False, "message": "没有识别到可导入的标题和链接", "errors": errors[:20]}), 400
+
+    imported = skipped = 0
+    for resource in resources:
+        row_number = resource.pop("row")
+        sheet_number = resource.pop("sheet")
+        resource["origin_type"] = "batch_import"
+        resource["save_to_netdisk"] = {}
+        success, message, _ = add_resource_and_share(resource)
+        if not success:
+            errors.append(f"工作表 {sheet_number} 第 {row_number} 行：{message}")
+        elif message == "资源链接已存在，无需重复导入":
+            skipped += 1
+        else:
+            imported += 1
+
+    return jsonify({
+        "success": True,
+        "message": f"导入完成：新增 {imported} 条，重复 {skipped} 条，失败 {len(errors)} 条",
+        "imported": imported,
+        "skipped": skipped,
+        "failed": len(errors),
+        "errors": errors[:20],
+    })
 
 
 @resources_bp.route("/admin/api/resources/<int:resource_id>", methods=["PUT"])
