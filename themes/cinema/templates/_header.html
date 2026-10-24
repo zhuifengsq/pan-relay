@@ -1,19 +1,28 @@
-<header class="topbar" id="top">
+<header class="topbar{% if show_film_tabs %} topbar--with-films{% endif %}" id="top">
   <a class="brand" href="/" aria-label="返回首页">
     <img class="brand-logo" src="{{ site_logo }}" alt="">
     <span>{{ site_name or 'Pan-Relay' }}</span>
   </a>
-  <nav class="main-nav" aria-label="主导航">
-    <a class="active" href="/">搜索首页</a>
-    <a href="/#hot-search">热搜榜</a>
-    <a href="/#resource-hall">资源大厅</a>
+  {% if show_film_tabs %}
+  <nav class="cinema-film-tabs" id="cinemaFilmTabs" role="tablist" aria-label="影视分类">
+    <button type="button" class="cinema-film-tab is-active" role="tab" aria-selected="true" data-category="电视剧">电视剧</button>
+    <button type="button" class="cinema-film-tab" role="tab" aria-selected="false" data-category="电影">电影</button>
+    <button type="button" class="cinema-film-tab" role="tab" aria-selected="false" data-category="动漫">动漫</button>
+    <button type="button" class="cinema-film-tab" role="tab" aria-selected="false" data-category="综艺">综艺</button>
   </nav>
+  {% endif %}
   <div class="topbar-actions">
     {% if enable_frontend_github %}
     <a class="github-star-link" href="https://github.com/ucmao/pan-relay" target="_blank" rel="noopener noreferrer" title="前往 Pan-Relay GitHub 仓库并点亮 Star">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.54v-2.1c-3.1.67-3.76-1.32-3.76-1.32-.5-1.29-1.23-1.63-1.23-1.63-1.01-.69.08-.68.08-.68 1.12.08 1.71 1.15 1.71 1.15 1 .1.76 2.28 3.84 1.61.1-.72.4-1.21.7-1.49-2.48-.28-5.09-1.24-5.09-5.52 0-1.22.44-2.21 1.15-2.99-.12-.28-.5-1.42.11-2.96 0 0 .94-.3 3.05 1.14a10.6 10.6 0 0 1 5.55 0c2.11-1.44 3.05-1.14 3.05-1.14.61 1.54.23 2.68.11 2.96.71.78 1.14 1.77 1.14 2.99 0 4.29-2.61 5.23-5.1 5.51.4.35.75 1.02.75 2.06v3.05c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z"/></svg>
       <span>GitHub</span><b aria-hidden="true">★</b>
     </a>
+    {% endif %}
+    {% if group_chat_image %}
+    <button class="join-chat-link" type="button" id="joinChatButton" aria-haspopup="dialog" aria-controls="joinChatDialog">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5 8 8 0 0 1-3-.6L4 20l1.6-4.5a7.5 7.5 0 1 1 14.4-4Z"></path><path d="M9 11.5h.01M12.5 11.5h.01M16 11.5h.01"></path></svg>
+      <span>加入群聊</span>
+    </button>
     {% endif %}
     <a class="nav-search" href="{{ header_search_href }}" id="topSearchLink" aria-label="搜一搜">
       <svg class="nav-search-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -24,3 +33,19 @@
     </a>
   </div>
 </header>
+{% if group_chat_image %}
+<dialog class="join-chat-dialog" id="joinChatDialog" aria-labelledby="joinChatTitle">
+  <button class="join-chat-close" type="button" id="joinChatClose" aria-label="关闭">×</button>
+  <h2 id="joinChatTitle">加入群聊</h2>
+  <p>请使用手机扫码加入</p>
+  <img src="{{ group_chat_image }}" alt="群聊二维码" loading="lazy">
+</dialog>
+<script>
+  (() => {
+    const dialog = document.getElementById('joinChatDialog');
+    document.getElementById('joinChatButton').addEventListener('click', () => dialog.showModal());
+    document.getElementById('joinChatClose').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
+  })();
+</script>
+{% endif %}

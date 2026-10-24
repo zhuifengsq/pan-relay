@@ -1436,6 +1436,7 @@ def save_active_theme(theme_id: str) -> bool:
 
 SITE_LOGO_KEY = "site_logo"
 SITE_NAME_KEY = "site_name"
+GROUP_CHAT_IMAGE_KEY = "cinema_group_chat_image"
 FRONTEND_SEO_CONFIG_KEY = "frontend_seo_config"
 DEFAULT_SITE_LOGO = "/static/images/hero_search_top.webp"
 DEFAULT_SITE_NAME = "夏琦搜索"
@@ -1552,6 +1553,21 @@ def save_site_logo(logo_url: str) -> bool:
     """保存全局站点 Logo 地址"""
     clean_url = (logo_url or "").strip()
     return set_config_value(SITE_LOGO_KEY, {"logo": clean_url})
+
+
+def get_group_chat_image() -> str:
+    """影视精选风的群聊图片；未配置时隐藏入口。"""
+    raw_value = get_config_value(GROUP_CHAT_IMAGE_KEY)
+    if not raw_value:
+        return ""
+    try:
+        return str(json.loads(raw_value).get("image_url") or "").strip()
+    except (TypeError, ValueError, AttributeError):
+        return ""
+
+
+def save_group_chat_image(image_url: str) -> bool:
+    return set_config_value(GROUP_CHAT_IMAGE_KEY, {"image_url": image_url})
 
 
 def get_site_name() -> str:

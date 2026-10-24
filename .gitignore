@@ -14,6 +14,7 @@ ENV/
 # 项目运行时数据与日志
 data/
 logs/
+static/uploads/
 *.log
 
 # 数据库文件

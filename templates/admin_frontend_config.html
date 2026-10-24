@@ -160,7 +160,36 @@
 
 
 
-        <!-- 3. 页面元素与品牌展示 -->
+        <!-- 3. 影视精选风群聊入口 -->
+        <section class="admin-panel">
+            <div class="admin-panel-header">
+                <div class="admin-panel-title-area">
+                    <h2 class="admin-panel-title"><i class="fas fa-comments text-amber-600"></i> 影视精选风群聊入口</h2>
+                    <p class="admin-panel-desc">上传群聊二维码后，在影视精选风顶部「搜一搜」左侧显示「加入群聊」</p>
+                </div>
+            </div>
+            <div class="admin-panel-body">
+                <div class="flex flex-col sm:flex-row items-start gap-5">
+                    <div class="w-40 h-40 flex-shrink-0 flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+                        <img id="groupChatPreview" src="{{ group_chat_image or '' }}" alt="当前群聊图片" class="max-w-full max-h-full object-contain {{ '' if group_chat_image else 'hidden' }}">
+                        <span id="groupChatEmpty" class="text-xs text-slate-400 {{ 'hidden' if group_chat_image else '' }}">暂未上传图片</span>
+                    </div>
+                    <div class="space-y-3">
+                        <p class="text-xs text-slate-500">支持 PNG、JPG、WebP，最大 5 MB。图片会保存在服务器的 static/uploads 目录。</p>
+                        <div class="flex items-center gap-2">
+                            <label class="btn btn-outline-primary btn-sm text-xs cursor-pointer py-1 px-2.5">
+                                <i class="fas fa-cloud-arrow-up mr-1"></i> 上传群聊图片
+                                <input type="file" id="groupChatFileInput" accept="image/png,image/jpeg,image/webp" class="hidden" onchange="uploadGroupChatImage(this)">
+                            </label>
+                            <button type="button" id="groupChatClearButton" onclick="clearGroupChatImage()" class="btn btn-outline-secondary btn-sm text-xs py-1 px-2.5" {{ '' if group_chat_image else 'disabled' }}>移除图片</button>
+                        </div>
+                        <p id="groupChatStatus" class="text-xs text-slate-500" role="status"></p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. 页面元素与品牌展示 -->
         <section class="admin-panel {% if not enable_frontend %}opacity-50 pointer-events-none select-none{% endif %}"
             id="frontendBrandPanel">
             <div class="admin-panel-header">
@@ -923,6 +952,48 @@
             }
         } catch (e) {
             alert('文件上传失败，请检查网络');
+        }
+    }
+
+    function updateGroupChatPreview(imageUrl) {
+        const preview = document.getElementById('groupChatPreview');
+        preview.src = imageUrl || '';
+        preview.classList.toggle('hidden', !imageUrl);
+        document.getElementById('groupChatEmpty').classList.toggle('hidden', !!imageUrl);
+        document.getElementById('groupChatClearButton').disabled = !imageUrl;
+    }
+
+    async function uploadGroupChatImage(inputEl) {
+        const file = inputEl.files?.[0];
+        if (!file) return;
+        const status = document.getElementById('groupChatStatus');
+        status.textContent = '正在上传…';
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const response = await fetch('/api/frontend/group-chat/upload', { method: 'POST', body: formData });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || '上传失败');
+            updateGroupChatPreview(data.image_url);
+            status.textContent = '上传成功，前台刷新后即可看到入口。';
+        } catch (error) {
+            status.textContent = error.message || '上传失败，请稍后重试。';
+        } finally {
+            inputEl.value = '';
+        }
+    }
+
+    async function clearGroupChatImage() {
+        const status = document.getElementById('groupChatStatus');
+        status.textContent = '正在移除…';
+        try {
+            const response = await fetch('/api/frontend/group-chat/clear', { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || '移除失败');
+            updateGroupChatPreview('');
+            status.textContent = '图片已移除，前台入口已关闭。';
+        } catch (error) {
+            status.textContent = error.message || '移除失败，请稍后重试。';
         }
     }
 

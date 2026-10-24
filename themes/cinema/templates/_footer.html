@@ -11,8 +11,6 @@
       {% include "_friend_links.html" %}
       {% if frontend_disclaimer_text %}<p class="site-footer__disclaimer">{{ frontend_disclaimer_text }}</p>{% endif %}
       <div class="site-footer__meta">
-        <a href="/#hot-search">热搜榜</a>
-        <a href="/#resource-hall">资源大厅</a>
         {% if enable_frontend_copyright %}<span>{% if frontend_copyright_text %}{{ frontend_copyright_text }}{% else %}© {{ current_year or 2026 }} {{ site_name or 'Pan-Relay' }}{% endif %}</span>{% endif %}
       </div>
     </div>

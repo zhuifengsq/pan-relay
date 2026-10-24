@@ -35,6 +35,16 @@ button { color: inherit; }
 .nav-search span { margin-right: 0; font-size: 12px; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .topbar-actions .nav-search { margin-left: 0; }
+.join-chat-link { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border: 1px solid #f1d9af; border-radius: 20px; background: #fff9ef; color: #a86717; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; cursor: pointer; }
+.join-chat-link:hover { background: #fff1d5; border-color: #eebf72; }
+.join-chat-link svg { width: 17px; height: 17px; }
+.join-chat-dialog { width: min(360px, calc(100vw - 32px)); padding: 27px 24px 24px; border: 0; border-radius: 16px; background: #fff; color: var(--ink); text-align: center; box-shadow: 0 22px 75px rgba(0,0,0,.24); }
+.join-chat-dialog::backdrop { background: rgba(10,16,29,.65); }
+.join-chat-dialog h2 { margin: 0; font-size: 21px; }
+.join-chat-dialog p { margin: 6px 0 18px; color: #7b808b; font-size: 13px; }
+.join-chat-dialog img { display: block; width: min(100%, 280px); max-height: 65vh; margin: 0 auto; object-fit: contain; }
+.join-chat-close { position: absolute; top: 10px; right: 12px; width: 32px; height: 32px; border: 0; background: none; color: #687080; font-size: 27px; line-height: 1; cursor: pointer; }
+.join-chat-close:hover { color: var(--ink); }
 .github-star-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid #eaebef; border-radius: 20px; color: #6f7480; font-size: 12px; font-weight: 600; white-space: nowrap; transition: border-color .2s, color .2s, background .2s; }
 .github-star-link svg { width: 15px; height: 15px; fill: currentColor; }
 .github-star-link b { color: #e4a93d; font-size: 12px; }
@@ -149,6 +159,8 @@ button { color: inherit; }
   .main-nav { gap: 16px; }
   .main-nav a { font-size: 11px; }
   .topbar-actions { gap: 7px; }
+  .join-chat-link { gap: 4px; padding: 7px 8px; font-size: 11px; }
+  .join-chat-link svg { width: 15px; height: 15px; }
   .github-star-link { gap: 0; padding: 7px 9px; font-size: 0; }
   .github-star-link svg { width: 17px; height: 17px; }
   .github-star-link b { display: none; }

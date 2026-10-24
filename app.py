@@ -34,6 +34,7 @@ from src.services.system_config_service import (
     get_active_theme,
     get_site_logo,
     get_site_name,
+    get_group_chat_image,
     build_frontend_seo_meta,
     is_resource_request_enabled,
     is_hot_searches_enabled,
@@ -46,6 +47,7 @@ from src.services.system_config_service import (
     is_frontend_copyright_enabled,
 )
 from src.services.theme_service import theme_static_bp
+from src.services.film_trending_service import CATEGORIES as FILM_CATEGORIES, get_film_trending
 from src.utils.netdisk_utils import get_netdisk_drive_type
 import jinja2
 
@@ -159,6 +161,7 @@ def inject_login_status():
         'admin_username': admin_name,
         'site_logo': get_site_logo(),
         'site_name': get_site_name(),
+        'group_chat_image': get_group_chat_image(),
         'current_year': datetime.now().year,
         'enable_resource_request': is_resource_request_enabled(),
         'enable_hot_searches': is_hot_searches_enabled(),
@@ -208,13 +211,21 @@ def search_index():
     }
 
     if active_theme == "cinema":
-        from src.db.resources import get_resource_hall_items
-
-        ctx['resource_hall_items'] = get_resource_hall_items(limit=8)
         return render_template('cinema/templates/index.html', **ctx)
     if active_theme == "aurora":
         return render_template('aurora/templates/index.html', **ctx)
     return render_template('classic/templates/index.html', **ctx)
+
+
+@app.route('/api/film-trending')
+def film_trending():
+    if not is_frontend_enabled():
+        return jsonify({"items": []}), 404
+    category = request.args.get('category', '电影')
+    if category not in FILM_CATEGORIES:
+        return jsonify({"error": "不支持的影视分类"}), 400
+    items, stale = get_film_trending(category)
+    return jsonify({"items": items, "stale": stale})
 
 
 # 搜索结果页 (主要用于 aurora 主题或独立搜索 URL)

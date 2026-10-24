@@ -12,6 +12,7 @@ ENV/
 .DS_Store
 *.log
 data/
+static/uploads/
 tests/
 htmlcov/
 .coverage

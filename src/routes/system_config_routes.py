@@ -239,6 +239,7 @@ def frontend_config_page():
         get_active_theme,
         get_site_logo,
         get_site_name,
+        get_group_chat_image,
         is_resource_request_enabled,
         is_hot_searches_enabled,
         get_hot_searches_config,
@@ -288,6 +289,7 @@ def frontend_config_page():
         active_theme=get_active_theme(),
         current_site_logo=get_site_logo(),
         current_site_name=get_site_name(),
+        group_chat_image=get_group_chat_image(),
         frontend_seo_config=get_frontend_seo_config(),
     )
 
@@ -393,6 +395,76 @@ def api_upload_site_logo():
     relative_url = f"/static/uploads/{filename}"
     save_site_logo(relative_url)
     return jsonify({"success": True, "message": "Logo 上传并替换成功", "logo_url": relative_url})
+
+
+def _delete_group_chat_upload(image_url):
+    """只清理本功能生成的旧图片。"""
+    import os
+    import re
+
+    if not re.fullmatch(r"/static/uploads/group_chat_[0-9a-f]{32}\.(?:png|jpg|webp)", image_url or ""):
+        return
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        os.remove(os.path.join(base_dir, image_url.lstrip("/").replace("/", os.sep)))
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.warning("无法删除旧群聊图片: %s", image_url)
+
+
+@system_config_bp.route("/api/frontend/group-chat/upload", methods=["POST"])
+@token_required
+def api_upload_group_chat_image():
+    """上传影视精选风顶部群聊入口展示的图片。"""
+    import os
+    import uuid
+    from src.services.system_config_service import get_group_chat_image, save_group_chat_image
+
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"success": False, "message": "请选择图片文件"}), 400
+
+    image = file.stream.read(5 * 1024 * 1024 + 1)
+    if not image or len(image) > 5 * 1024 * 1024:
+        return jsonify({"success": False, "message": "图片不能为空或超过 5 MB"}), 400
+
+    if image.startswith(b"\x89PNG\r\n\x1a\n"):
+        ext = ".png"
+    elif image.startswith(b"\xff\xd8\xff"):
+        ext = ".jpg"
+    elif image.startswith(b"RIFF") and image[8:12] == b"WEBP":
+        ext = ".webp"
+    else:
+        return jsonify({"success": False, "message": "仅支持 PNG、JPG 或 WebP 图片"}), 400
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    upload_dir = os.path.join(base_dir, "static", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = f"group_chat_{uuid.uuid4().hex}{ext}"
+    target_path = os.path.join(upload_dir, filename)
+    with open(target_path, "wb") as output:
+        output.write(image)
+
+    old_image = get_group_chat_image()
+    image_url = f"/static/uploads/{filename}"
+    if not save_group_chat_image(image_url):
+        os.remove(target_path)
+        return jsonify({"success": False, "message": "保存群聊图片失败"}), 500
+    _delete_group_chat_upload(old_image)
+    return jsonify({"success": True, "message": "群聊图片已更新", "image_url": image_url})
+
+
+@system_config_bp.route("/api/frontend/group-chat/clear", methods=["POST"])
+@token_required
+def api_clear_group_chat_image():
+    from src.services.system_config_service import get_group_chat_image, save_group_chat_image
+
+    old_image = get_group_chat_image()
+    if not save_group_chat_image(""):
+        return jsonify({"success": False, "message": "移除群聊图片失败"}), 500
+    _delete_group_chat_upload(old_image)
+    return jsonify({"success": True, "message": "群聊入口已关闭"})
 
 
 

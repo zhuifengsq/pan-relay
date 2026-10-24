@@ -9,10 +9,12 @@
   <meta name="robots" content="{{ seo_meta.robots }}">
   <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
   <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
-  <link rel="stylesheet" href="/themes/cinema/assets/css/theme.css?v=1.1.1">
+  <link rel="stylesheet" href="/themes/cinema/assets/css/theme.css?v=1.1.2">
+  <link rel="stylesheet" href="/themes/cinema/assets/css/film-trending.css?v=1.0.1">
 </head>
 <body>
   {% set header_search_href = '#search-box' %}
+  {% set show_film_tabs = true %}
   {% include "cinema/templates/_header.html" %}
 
   <main>
@@ -49,67 +51,31 @@
       </aside>
       {% endif %}
 
-      <section class="hot-search section-block" id="hot-search" aria-labelledby="hot-search-title">
-        <div class="section-heading compact-heading">
-          <div>
-            <div class="section-kicker">TRENDING SEARCHES</div>
-            <h2 id="hot-search-title"><span class="heading-flame">↗</span> 热门搜索</h2>
-            <p>看看大家正在寻找什么</p>
-          </div>
-          <span class="heading-aside">实时热度 <span class="live-pulse"></span></span>
-        </div>
-        {% if enable_hot_searches and hot_search_words %}
-        <div class="hot-search-grid">
-          {% for word in hot_search_words[:9] %}
-          <a class="hot-search-item" href="/search?q={{ word|urlencode }}">
-            <span class="rank {% if loop.index <= 3 %}rank-top{% endif %}">{{ '%02d'|format(loop.index) }}</span>
-            <span class="hot-word">{{ word }}</span>
-            {% if loop.index <= 3 %}<span class="hot-badge">热</span>{% endif %}
-            <span class="hot-arrow" aria-hidden="true">↗</span>
-          </a>
-          {% endfor %}
-        </div>
-        {% else %}
-        <div class="empty-hot-search">热搜暂未开启，试试搜索你喜欢的影视作品。</div>
-        {% endif %}
-      </section>
-
-      <section class="resource-hall section-block" id="resource-hall" aria-labelledby="resource-hall-title">
+      <section class="cinema-films section-block" id="cinemaFilms" aria-labelledby="cinemaFilmsTitle">
         <div class="section-heading">
           <div>
-            <div class="section-kicker">FEATURED RESOURCES</div>
-            <h2 id="resource-hall-title">资源大厅 <span class="heading-pill">精选资源</span></h2>
-            <p>已收录的优质分享，打开即可保存</p>
+            <div class="section-kicker">MOVIE DISCOVERY</div>
+            <h2 id="cinemaFilmsTitle">热门影视推荐</h2>
+            <p>点击海报，搜索对应的网盘资源</p>
           </div>
-          {% if resource_hall_items %}<span class="resource-count">共 {{ resource_hall_items|length }} 条精选资源</span>{% endif %}
+          <span class="cinema-films-count">每类 12 部 · 定期更新</span>
         </div>
-        {% if resource_hall_items %}
-        <div class="resource-grid">
-          {% for item in resource_hall_items %}
-          <a class="resource-card" href="{{ item.share_link }}" target="_blank" rel="noopener noreferrer">
-            <div class="resource-cover">
-              {% if item.cover_url %}<img src="{{ item.cover_url }}" alt="{{ item.name }}封面" loading="lazy">{% else %}<span class="resource-cover-placeholder" aria-hidden="true">✦</span>{% endif %}
-              <span class="resource-open" aria-hidden="true">↗</span>
-            </div>
-            <div class="resource-info">
-              <h3>{{ item.name }}</h3>
-              <span>{{ item.cloud_name or item.type or '网盘资源' }}</span>
-            </div>
-          </a>
+        <div class="cinema-films-grid" id="cinemaFilmsGrid" role="tabpanel" aria-live="polite" aria-busy="true">
+          {% for _ in range(12) %}
+          <div class="cinema-film-card cinema-film-skeleton" aria-hidden="true"><span class="cinema-film-poster"></span><span class="cinema-film-name">&nbsp;</span></div>
           {% endfor %}
         </div>
-        {% else %}
-        <div class="resource-empty"><span>✦</span><div><strong>资源正在整理中</strong><p>收录到“我的资源”的内容会展示在这里。</p></div></div>
-        {% endif %}
+        <p class="cinema-films-status" id="cinemaFilmsStatus" role="status">正在加载影视热榜…</p>
       </section>
 
       <section class="bottom-search">
         <div><span class="section-kicker">YOUR NEXT FAVORITE</span><h2>没找到想看的？</h2><p>换个关键词，再发现一些好内容。</p></div>
-        <a href="#search-box">返回搜索 <span aria-hidden="true">↑</span></a>
+        <a href="#top">返回搜索 <span aria-hidden="true">↑</span></a>
         <span class="bottom-spark" aria-hidden="true">✳</span>
       </section>
     </div>
   </main>
   {% include "cinema/templates/_footer.html" %}
+  <script src="/themes/cinema/assets/js/film-trending.js?v=1.0.1"></script>
 </body>
 </html>
