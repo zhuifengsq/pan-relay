@@ -2,7 +2,7 @@
 {% set active_page = 'config_api' %}
 {% set current_tab = current_tab or 'config' %}
 
-{% block title %}开放 API 配置 - Pan-Relay Console{% endblock %}
+{% block title %}开放 API 配置 - {{ site_name or '夏琦搜索' }}{% endblock %}
 
 {% block content %}
 <div id="apiConfigContainer" class="{{ 'max-w-7xl' if current_tab == 'docs' else 'max-w-4xl' }} mx-auto space-y-6 transition-[max-width] duration-200">

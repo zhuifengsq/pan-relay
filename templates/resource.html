@@ -1,9 +1,9 @@
 {% extends "admin_layout.html" %}
 {% set active_page = 'resources' %}
+{% block title %}我的资源管理 - {{ site_name or '夏琦搜索' }}{% endblock %}
 
 {% block head %}
     {{ super() }}
-    <title>Pan-Relay - 我的资源管理</title>
     <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/resource.css') }}?v=2.1.3">
 {% endblock %}

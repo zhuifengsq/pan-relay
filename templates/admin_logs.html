@@ -1,10 +1,10 @@
 {% extends "admin_layout.html" %}
 {% set active_page = 'logs' %}
 {% set current_tab = current_tab or 'analytics' %}
+{% block title %}运行与搜索日志 - {{ site_name or '夏琦搜索' }}{% endblock %}
 
 {% block head %}
 {{ super() }}
-<title>Pan-Relay - 运行与搜索日志</title>
 <style>
     .log-badge {
         display: inline-flex;
