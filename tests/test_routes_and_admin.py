@@ -334,9 +334,9 @@ class SystemConfigPagesTest(unittest.TestCase):
         self.client.set_cookie("token", self.token)
 
         # 1. 页脚文字与开关测试
-        resp = self.client.put("/admin/api/frontend-github-config", json={"footer_enabled": False, "footer_text": "自定义页脚"})
+        resp = self.client.put("/admin/api/frontend-footer-config", json={"footer_enabled": False, "footer_text": "自定义页脚"})
         self.assertEqual(200, resp.status_code)
-        get_resp = self.client.get("/admin/api/frontend-github-config")
+        get_resp = self.client.get("/admin/api/frontend-footer-config")
         self.assertEqual(200, get_resp.status_code)
         self.assertFalse(get_resp.get_json().get("footer_enabled"))
         self.assertEqual("自定义页脚", get_resp.get_json().get("footer_text"))
@@ -357,7 +357,7 @@ class SystemConfigPagesTest(unittest.TestCase):
         self.assertEqual("自定义免责声明", get_resp.get_json().get("disclaimer_text"))
 
         # 4. 恢复默认/开启开关
-        self.client.put("/admin/api/frontend-github-config", json={"footer_enabled": True})
+        self.client.put("/admin/api/frontend-footer-config", json={"footer_enabled": True})
         self.client.put("/admin/api/frontend-copyright-config", json={"enabled": True})
 
     def test_system_config_page_renders(self):

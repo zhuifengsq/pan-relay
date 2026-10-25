@@ -344,18 +344,14 @@ async function savePcQrCodeConfig() {
     }
 }
 
-async function loadFrontendGithubConfig() {
+async function loadFrontendFooterConfig() {
     try {
-        const response = await fetch('/admin/api/frontend-github-config');
+        const response = await fetch('/admin/api/frontend-footer-config');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
         const data = await response.json();
-        const toggle = document.getElementById('enableFrontendGithubToggle');
-        if (toggle) {
-            toggle.checked = Boolean(data.enabled);
-        }
         const footerInput = document.getElementById('frontendFooterTextInput');
         if (footerInput) {
             footerInput.value = data.footer_text || '';
@@ -366,7 +362,7 @@ async function loadFrontendGithubConfig() {
             updateFrontendFooterTextState(footerToggle.checked);
         }
     } catch (error) {
-        console.error('加载前台 GitHub 标识配置失败:', error);
+        console.error('加载前台页脚配置失败:', error);
     }
 }
 
@@ -383,7 +379,7 @@ async function toggleFrontendFooterTextState() {
     const enabled = toggle ? toggle.checked : true;
     updateFrontendFooterTextState(enabled);
     try {
-        const response = await fetch('/admin/api/frontend-github-config', {
+        const response = await fetch('/admin/api/frontend-footer-config', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ footer_enabled: enabled })
@@ -396,31 +392,7 @@ async function toggleFrontendFooterTextState() {
     } catch (error) {
         console.error('保存页脚文字开关失败:', error);
         showToast(`保存配置失败: ${error.message}`, 'danger');
-        await loadFrontendGithubConfig();
-    }
-}
-
-async function saveFrontendGithubConfig() {
-    const toggle = document.getElementById('enableFrontendGithubToggle');
-    const enabled = toggle ? toggle.checked : true;
-
-    try {
-        const response = await fetch('/admin/api/frontend-github-config', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ enabled })
-        });
-
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-            throw new Error(data.message || `HTTP error! status: ${response.status}`);
-        }
-
-        showToast(data.message || '配置已保存', 'success');
-    } catch (error) {
-        console.error('保存前台 GitHub 标识配置失败:', error);
-        showToast(`保存配置失败: ${error.message}`, 'danger');
-        await loadFrontendGithubConfig();
+        await loadFrontendFooterConfig();
     }
 }
 
@@ -442,7 +414,7 @@ async function saveFrontendFooterText(isSilent = false) {
         statusEl.innerHTML = '<i class="fas fa-spinner fa-spin text-blue-500 mr-1"></i>保存中...';
     }
     try {
-        const response = await fetch('/admin/api/frontend-github-config', {
+        const response = await fetch('/admin/api/frontend-footer-config', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ footer_text })
@@ -468,7 +440,7 @@ async function saveFrontendFooterText(isSilent = false) {
             statusEl.innerHTML = '<i class="fas fa-exclamation-circle text-rose-500 mr-1"></i>保存失败';
         }
         showToast(`保存配置失败: ${error.message}`, 'danger');
-        await loadFrontendGithubConfig();
+        await loadFrontendFooterConfig();
     }
 }
 
@@ -1972,7 +1944,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPublicSearchApiConfig();
     loadAllowExcelDownloadConfig();
     loadPcQrCodeConfig();
-    loadFrontendGithubConfig();
+    loadFrontendFooterConfig();
     loadFrontendCopyrightText();
     loadFrontendDisclaimerText();
     loadFrontendSeoConfig();

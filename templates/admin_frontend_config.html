@@ -195,34 +195,13 @@
             <div class="admin-panel-header">
                 <div class="admin-panel-title-area">
                     <h2 class="admin-panel-title">
-                        <i class="fab fa-github text-slate-700"></i> 页面元素与品牌展示
+                        <i class="fas fa-palette text-slate-700"></i> 页面元素与品牌展示
                     </h2>
-                    <p class="admin-panel-desc">控制前台 Web 页面的开源标识、外部链接及版权信息展示</p>
+                    <p class="admin-panel-desc">控制前台 Web 页面的入口与版权信息展示</p>
                 </div>
             </div>
             <div class="admin-panel-body">
                 <div class="divide-y divide-slate-100">
-                    <div class="setting-item-row" id="frontendGithubSettingContainer">
-                        <div class="space-y-1 min-w-0 pr-4">
-                            <div class="flex items-center gap-2 flex-wrap">
-                                <span class="font-semibold text-slate-800 text-sm">GitHub 徽章</span>
-                                <span class="help-tooltip"
-                                    data-tooltip="控制前台 Web 顶部右侧 GitHub 徽章和模板二首页的 GitHub 星标入口。关闭后前台将隐藏这些开源入口。">
-                                    <i class="far fa-circle-question text-xs"></i>
-                                </span>
-                            </div>
-                            <p class="text-xs text-slate-500">控制两套模板中的 GitHub 仓库入口与 Star 标识</p>
-                        </div>
-                        <div class="flex items-center flex-shrink-0">
-                            <label class="plugin-switch" title="切换 GitHub 标识展示">
-                                <input type="checkbox" id="enableFrontendGithubToggle"
-                                    onchange="saveFrontendGithubConfig()" {% if enable_frontend_github %}checked{% endif
-                                    %}>
-                                <span class="plugin-switch-slider"></span>
-                            </label>
-                        </div>
-                    </div>
-
                     <!-- 求片入口开关 -->
                     <div class="setting-item-row" id="frontendResourceRequestSettingContainer">
                         <div class="space-y-1 min-w-0 pr-4">
@@ -798,7 +777,7 @@
 {% block scripts %}
 {{ super() }}
 <script src="{{ url_for('static', filename='js/utils.js') }}?v=2.0.7"></script>
-<script src="{{ url_for('static', filename='js/system_config.js') }}?v=2.0.7"></script>
+<script src="{{ url_for('static', filename='js/system_config.js') }}?v=2.0.8"></script>
 <script>
     function switchFrontendTab(targetTab) {
         if (!targetTab) targetTab = 'appearance';

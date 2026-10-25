@@ -116,6 +116,12 @@ def _migrate_schema_columns(conn: sqlite3.Connection):
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_resources_origin ON resources(origin_type);")
             if "cover_url" not in res_cols:
                 conn.execute("ALTER TABLE resources ADD COLUMN cover_url TEXT DEFAULT NULL;")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS cinema_featured_resources (
+                    resource_id INTEGER PRIMARY KEY,
+                    position INTEGER NOT NULL UNIQUE
+                );
+            """)
 
         # 2. 检查 temp_share 是否有 account_id
         temp_cols = [row[1] for row in conn.execute("PRAGMA table_info(temp_share);").fetchall()]

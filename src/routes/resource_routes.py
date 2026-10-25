@@ -11,10 +11,23 @@ from src.services.resource_service import (
     delete_resource_and_share,
 )
 from src.services.resource_excel_service import MAX_FILE_BYTES, ResourceExcelError, parse_resource_excel
+from src.db.resources import get_cinema_featured_resources, set_cinema_featured_resources
 
 logger = logging.getLogger(__name__)
 
 resources_bp = Blueprint("resources", __name__)
+
+
+@resources_bp.route("/admin/api/resources/cinema-featured", methods=["GET", "PUT"])
+@token_required
+def cinema_featured_resources():
+    if request.method == "GET":
+        return jsonify({"success": True, "data": get_cinema_featured_resources()})
+    payload = request.get_json(silent=True) or {}
+    success, message = set_cinema_featured_resources(payload.get("resource_ids"))
+    if not success:
+        return jsonify({"success": False, "message": message}), 400
+    return jsonify({"success": True, "data": get_cinema_featured_resources()})
 
 
 @resources_bp.route("/admin/resources")

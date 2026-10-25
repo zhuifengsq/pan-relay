@@ -39,6 +39,11 @@ CREATE INDEX IF NOT EXISTS idx_resources_name ON resources(name);
 CREATE INDEX IF NOT EXISTS idx_resources_health ON resources(health_status);
 CREATE INDEX IF NOT EXISTS idx_resources_origin ON resources(origin_type);
 
+CREATE TABLE IF NOT EXISTS cinema_featured_resources (
+  resource_id INTEGER PRIMARY KEY,
+  position INTEGER NOT NULL UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS cloud_accounts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   cloud_name TEXT NOT NULL,

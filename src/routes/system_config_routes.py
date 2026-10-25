@@ -30,17 +30,16 @@ from src.services.system_config_service import (
     get_pc_qr_code_config,
     is_pc_qr_code_enabled,
     save_pc_qr_code_config,
-    get_frontend_github_config,
+    get_frontend_footer_config,
     get_frontend_disclaimer_config,
     get_frontend_copyright_config,
     get_frontend_disclaimer_text,
     get_frontend_copyright_text,
     get_frontend_seo_config,
-    is_frontend_github_enabled,
     is_frontend_footer_text_enabled,
     is_frontend_disclaimer_enabled,
     is_frontend_copyright_enabled,
-    save_frontend_github_config,
+    save_frontend_footer_config,
     save_frontend_footer_text,
     save_frontend_disclaimer_config,
     save_frontend_copyright_config,
@@ -269,9 +268,8 @@ def frontend_config_page():
         enable_frontend=api_mode_config.get("enable_frontend", True),
         allow_excel_download=allow_excel.get("allow_excel_download", True),
         enable_pc_qr_code=is_pc_qr_code_enabled(),
-        enable_frontend_github=is_frontend_github_enabled(),
         enable_frontend_footer_text=is_frontend_footer_text_enabled(),
-        frontend_footer_text=get_frontend_github_config().get("footer_text", ""),
+        frontend_footer_text=get_frontend_footer_config().get("footer_text", ""),
         enable_frontend_disclaimer=is_frontend_disclaimer_enabled(),
         frontend_disclaimer_text=get_frontend_disclaimer_text(),
         enable_frontend_copyright=is_frontend_copyright_enabled(),
@@ -577,38 +575,38 @@ def update_pc_qr_code_api():
     return jsonify({"success": True, "message": f"PC转存二维码引导已{'开启' if enabled else '关闭'}"})
 
 
-@system_config_bp.route("/admin/api/frontend-github-config", methods=["GET"])
+@system_config_bp.route("/admin/api/frontend-footer-config", methods=["GET"])
 @token_required
-def get_frontend_github_api():
-    config = get_frontend_github_config()
+def get_frontend_footer_api():
+    config = get_frontend_footer_config()
     return jsonify({"success": True, **config})
 
 
-@system_config_bp.route("/admin/api/frontend-github-config", methods=["PUT"])
+@system_config_bp.route("/admin/api/frontend-footer-config", methods=["PUT"])
 @token_required
-def update_frontend_github_api():
+def update_frontend_footer_api():
     data = request.get_json() or {}
+    if not any(key in data for key in ("footer_enabled", "footer_text")):
+        return jsonify({"success": False, "message": "缺少页脚配置"}), 400
     footer_text = data.get("footer_text")
     if "footer_text" in data and not isinstance(footer_text, str):
         return jsonify({"success": False, "message": "页脚文字必须是文本"}), 400
 
     saved = True
-    if "enabled" in data:
-        saved = save_frontend_github_config(enabled=bool(data["enabled"]))
-    if saved and "footer_enabled" in data:
-        saved = save_frontend_github_config(footer_enabled=bool(data["footer_enabled"]))
+    if "footer_enabled" in data:
+        saved = save_frontend_footer_config(footer_enabled=bool(data["footer_enabled"]))
     if saved and "footer_text" in data:
         saved = save_frontend_footer_text(footer_text)
 
     if not saved:
         return jsonify({"success": False, "message": "前台配置保存失败"}), 400
 
-    if "footer_enabled" in data and "footer_text" not in data and "enabled" not in data:
+    if "footer_enabled" in data and "footer_text" not in data:
         status = "开启" if bool(data["footer_enabled"]) else "关闭"
         return jsonify({"success": True, "message": f"页脚文字展示已{status}"})
-    if "footer_text" in data and "enabled" not in data:
+    if "footer_text" in data:
         return jsonify({"success": True, "message": "前台页脚文字已保存"})
-    return jsonify({"success": True, "message": f"前台 GitHub 标识展示已{'开启' if bool(data.get('enabled', True)) else '关闭'}"})
+    return jsonify({"success": True, "message": "前台页脚设置已保存"})
 
 
 @system_config_bp.route("/admin/api/frontend-disclaimer-config", methods=["GET"])

@@ -258,8 +258,12 @@ def list_resources(
         sort_order = "ASC" if order and order.lower() == "asc" else "DESC"
 
         query_sql = f"""
-        SELECT id, name, share_link, cloud_name, type, remarks, is_replaced, origin_type, health_status, health_message, checked_at, created_at, updated_at
+        SELECT resources.id, resources.name, resources.share_link, resources.cloud_name, resources.type,
+               resources.remarks, resources.is_replaced, resources.origin_type, resources.health_status,
+               resources.health_message, resources.checked_at, resources.created_at, resources.updated_at,
+               f.position AS featured_position
         FROM resources
+        LEFT JOIN cinema_featured_resources AS f ON f.resource_id = resources.id
         {where_clause}
         ORDER BY {sort_field} {sort_order}, id DESC
         LIMIT ? OFFSET ?
@@ -323,6 +327,57 @@ def get_resource_hall_items(limit: int = 8) -> List[Dict[str, Any]]:
                 }
             items.append(item)
         return items
+
+
+def get_cinema_featured_resources() -> List[Dict[str, Any]]:
+    """Return selected resources in the editor's order, skipping deleted records."""
+    with db_cursor(as_dict=True) as cursor:
+        if cursor is None:
+            return []
+        cursor.execute("""
+            SELECT r.id, r.name, r.share_link, r.cloud_name, f.position
+            FROM cinema_featured_resources AS f
+            JOIN resources AS r ON r.id = f.resource_id
+            WHERE COALESCE(r.share_link, '') != ''
+            ORDER BY f.position ASC
+            LIMIT 10
+        """)
+        return cursor.fetchall()
+
+
+def get_cinema_featured_resource(resource_id: int) -> Optional[Dict[str, Any]]:
+    return next((item for item in get_cinema_featured_resources() if item["id"] == resource_id), None)
+
+
+def set_cinema_featured_resources(resource_ids: List[int]) -> Tuple[bool, str]:
+    """Atomically replace the ordered selection after validating every ID."""
+    if (not isinstance(resource_ids, list) or len(resource_ids) > 10
+            or any(type(item) is not int or item < 1 for item in resource_ids)
+            or len(resource_ids) != len(set(resource_ids))):
+        return False, "精选资源最多 10 条，且不能重复"
+    conn = get_db_connection()
+    if not conn:
+        return False, "数据库连接失败"
+    cursor = conn.cursor()
+    try:
+        if resource_ids:
+            placeholders = ",".join("?" for _ in resource_ids)
+            cursor.execute(f"SELECT id FROM resources WHERE id IN ({placeholders}) AND COALESCE(share_link, '') != ''", resource_ids)
+            if len(cursor.fetchall()) != len(resource_ids):
+                return False, "部分资源不存在或缺少链接"
+        cursor.execute("DELETE FROM cinema_featured_resources")
+        cursor.executemany(
+            "INSERT INTO cinema_featured_resources (resource_id, position) VALUES (?, ?)",
+            [(resource_id, position) for position, resource_id in enumerate(resource_ids, start=1)],
+        )
+        conn.commit()
+        return True, ""
+    except Error as error:
+        conn.rollback()
+        return False, str(error)
+    finally:
+        cursor.close()
+        conn.close()
 
 
 def get_resource_by_id(resource_id: int) -> Tuple[bool, str, Optional[Dict[str, Any]]]:

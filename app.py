@@ -27,8 +27,7 @@ from src.services.system_config_service import (
     get_dynamic_transfer_netdisk_config,
     is_excel_download_enabled,
     is_pc_qr_code_enabled,
-    is_frontend_github_enabled,
-    get_frontend_github_config,
+    get_frontend_footer_config,
     is_frontend_enabled,
     is_api_only_enabled,
     get_active_theme,
@@ -48,6 +47,7 @@ from src.services.system_config_service import (
 )
 from src.services.theme_service import theme_static_bp
 from src.services.film_trending_service import CATEGORIES as FILM_CATEGORIES, get_film_trending
+from src.db.resources import get_cinema_featured_resources
 from src.utils.netdisk_utils import get_netdisk_drive_type
 import jinja2
 
@@ -148,9 +148,8 @@ def inject_login_status():
     frontend_seo_config = get_frontend_seo_config()
     return {
         'is_logged_in': is_logged_in,
-        'enable_frontend_github': is_frontend_github_enabled(),
         'enable_frontend_footer_text': is_frontend_footer_text_enabled(),
-        'frontend_footer_text': get_frontend_github_config().get('footer_text', 'Pan-Relay 发现海量网盘资源'),
+        'frontend_footer_text': get_frontend_footer_config().get('footer_text', 'Pan-Relay 发现海量网盘资源'),
         'enable_frontend_disclaimer': is_frontend_disclaimer_enabled(),
         'frontend_disclaimer_text': get_frontend_disclaimer_text(),
         'enable_frontend_copyright': is_frontend_copyright_enabled(),
@@ -198,8 +197,7 @@ def search_index():
         'enabled_check_pans': link_check_config.get("enabled_check_pans", []),
         'enabled_dynamic_transfer_pans': dynamic_transfer_config.get("enabled_netdisks", []),
         'enable_pc_qr_code': is_pc_qr_code_enabled(),
-        'enable_frontend_github': is_frontend_github_enabled(),
-        'frontend_footer_text': get_frontend_github_config().get('footer_text', 'Pan-Relay 发现海量网盘资源'),
+        'frontend_footer_text': get_frontend_footer_config().get('footer_text', 'Pan-Relay 发现海量网盘资源'),
         'enable_resource_request': is_resource_request_enabled(),
         'enable_hot_searches': is_hot_searches_enabled(),
         'hot_search_words': get_hot_search_words(),
@@ -211,6 +209,7 @@ def search_index():
     }
 
     if active_theme == "cinema":
+        ctx['cinema_featured_resources'] = get_cinema_featured_resources()
         return render_template('cinema/templates/index.html', **ctx)
     if active_theme == "aurora":
         return render_template('aurora/templates/index.html', **ctx)

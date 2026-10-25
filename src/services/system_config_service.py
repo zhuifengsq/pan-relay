@@ -27,7 +27,8 @@ TRANSFER_API_KEY_KEY = "transfer_api_key"
 FRONTEND_LINK_CHECK_CONFIG_KEY = "frontend_link_check_config"
 SECURITY_CONFIG_KEY = "security_config"
 ENABLE_PC_QR_CODE_KEY = "enable_pc_qr_code"
-ENABLE_FRONTEND_GITHUB_KEY = "enable_frontend_github"
+FRONTEND_FOOTER_CONFIG_KEY = "frontend_footer_config"
+LEGACY_FRONTEND_DISPLAY_CONFIG_KEY = "enable_frontend_github"
 DEFAULT_FRONTEND_FOOTER_TEXT = "夏琦搜索 发现海量网盘资源"
 LEGACY_DEFAULT_FRONTEND_FOOTER_TEXT = "Pan-Relay 聚合分发中枢 · 极速流式引擎"
 FRONTEND_DISCLAIMER_TEXT_KEY = "frontend_disclaimer_text"
@@ -272,55 +273,47 @@ def save_pc_qr_code_config(enabled: bool) -> bool:
     )
 
 
-def get_frontend_github_config() -> Dict[str, Any]:
-    raw_value = get_config_value(ENABLE_FRONTEND_GITHUB_KEY)
+def get_frontend_footer_config() -> Dict[str, Any]:
+    raw_value = get_config_value(FRONTEND_FOOTER_CONFIG_KEY)
+    if raw_value is None:
+        # Keep existing footer settings when upgrading from the former shared config.
+        raw_value = get_config_value(LEGACY_FRONTEND_DISPLAY_CONFIG_KEY)
     if not raw_value:
-        return {"enabled": True, "footer_text": DEFAULT_FRONTEND_FOOTER_TEXT, "footer_enabled": True}
+        return {"footer_text": DEFAULT_FRONTEND_FOOTER_TEXT, "footer_enabled": True}
 
     try:
         parsed = json.loads(raw_value)
     except (TypeError, json.JSONDecodeError):
-        logger.warning("前台GitHub展示配置格式无效，已回退到默认值")
-        return {"enabled": True, "footer_text": DEFAULT_FRONTEND_FOOTER_TEXT, "footer_enabled": True}
+        logger.warning("前台页脚配置格式无效，已回退到默认值")
+        return {"footer_text": DEFAULT_FRONTEND_FOOTER_TEXT, "footer_enabled": True}
 
     if not isinstance(parsed, dict):
-        return {"enabled": True, "footer_text": DEFAULT_FRONTEND_FOOTER_TEXT, "footer_enabled": True}
+        return {"footer_text": DEFAULT_FRONTEND_FOOTER_TEXT, "footer_enabled": True}
     footer_text = parsed.get("footer_text", DEFAULT_FRONTEND_FOOTER_TEXT)
     if not isinstance(footer_text, str):
         footer_text = DEFAULT_FRONTEND_FOOTER_TEXT
     elif footer_text == LEGACY_DEFAULT_FRONTEND_FOOTER_TEXT:
         footer_text = DEFAULT_FRONTEND_FOOTER_TEXT
     return {
-        "enabled": bool(parsed.get("enabled", True)),
         "footer_text": footer_text,
         "footer_enabled": bool(parsed.get("footer_enabled", True)),
     }
 
 
-def is_frontend_github_enabled() -> bool:
-    return get_frontend_github_config()["enabled"]
-
-
 def is_frontend_footer_text_enabled() -> bool:
-    return get_frontend_github_config().get("footer_enabled", True)
+    return get_frontend_footer_config()["footer_enabled"]
 
 
-def save_frontend_github_config(enabled: Optional[bool] = None, footer_enabled: Optional[bool] = None) -> bool:
-    config = get_frontend_github_config()
-    if enabled is not None:
-        config["enabled"] = bool(enabled)
-    if footer_enabled is not None:
-        config["footer_enabled"] = bool(footer_enabled)
-    return set_config_value(
-        ENABLE_FRONTEND_GITHUB_KEY,
-        config,
-    )
+def save_frontend_footer_config(footer_enabled: bool) -> bool:
+    config = get_frontend_footer_config()
+    config["footer_enabled"] = bool(footer_enabled)
+    return set_config_value(FRONTEND_FOOTER_CONFIG_KEY, config)
 
 
 def save_frontend_footer_text(footer_text: str) -> bool:
-    config = get_frontend_github_config()
+    config = get_frontend_footer_config()
     config["footer_text"] = str(footer_text or "").strip()
-    return set_config_value(ENABLE_FRONTEND_GITHUB_KEY, config)
+    return set_config_value(FRONTEND_FOOTER_CONFIG_KEY, config)
 
 
 def get_frontend_disclaimer_config() -> Dict[str, Any]:

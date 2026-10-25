@@ -392,6 +392,11 @@ function renderTable() {
                                     <i class="fas fa-edit me-2 text-slate-400"></i> 编辑
                                 </a>
                             </li>
+                            <li>
+                                <button class="dropdown-item cinema-featured-choice" type="button" data-id="${resource.id}">
+                                    <i class="fas fa-star me-2 text-amber-500"></i> ${resource.featured_position ? '取消精选' : '加入精选'}
+                                </button>
+                            </li>
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <a class="dropdown-item text-danger delete-btn" href="javascript:void(0)" data-id="${resource.id}">

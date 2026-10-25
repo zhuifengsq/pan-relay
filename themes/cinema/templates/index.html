@@ -11,6 +11,7 @@
   <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
   <link rel="stylesheet" href="/themes/cinema/assets/css/theme.css?v=1.1.2">
   <link rel="stylesheet" href="/themes/cinema/assets/css/film-trending.css?v=1.0.1">
+  <link rel="stylesheet" href="/themes/cinema/assets/css/featured-resources.css?v=1.0.1">
 </head>
 <body>
   {% set header_search_href = '#search-box' %}
@@ -68,6 +69,30 @@
         <p class="cinema-films-status" id="cinemaFilmsStatus" role="status">正在加载影视热榜…</p>
       </section>
 
+      {% if cinema_featured_resources %}
+      <section class="cinema-featured section-block" aria-labelledby="cinemaFeaturedTitle">
+        <div class="section-heading">
+          <div>
+            <div class="section-kicker">CURATED RESOURCES</div>
+            <h2 id="cinemaFeaturedTitle">精选资源</h2>
+            <p>站长挑选的优质网盘资源</p>
+          </div>
+          <span class="cinema-featured-count">{{ cinema_featured_resources|length }} 条精选</span>
+        </div>
+        <div class="cinema-featured-grid" style="--featured-rows: {{ [5, cinema_featured_resources|length]|min }}">
+          {% for item in cinema_featured_resources %}
+          {% set cloud = item.cloud_name or '' %}
+          {% set icon = 'baidu' if '百度' in cloud else 'quark' if '夸克' in cloud else 'aliyun' if '阿里' in cloud else 'xunlei' if '迅雷' in cloud else 'uc' if 'UC' in cloud or 'uc' in cloud else 'all' %}
+          <button class="cinema-featured-item" type="button" data-title="{{ item.name }}" data-url="{{ item.share_link }}" title="查看 {{ item.name }} 的资源链接">
+            <img src="/themes/cinema/assets/icons/{{ icon }}.webp" alt="{{ cloud }}" loading="lazy">
+            <span class="cinema-featured-name">{{ item.name }}</span>
+            <span class="cinema-featured-arrow" aria-hidden="true">→</span>
+          </button>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
       <section class="bottom-search">
         <div><span class="section-kicker">YOUR NEXT FAVORITE</span><h2>没找到想看的？</h2><p>换个关键词，再发现一些好内容。</p></div>
         <a href="#top">返回搜索 <span aria-hidden="true">↑</span></a>
@@ -76,6 +101,8 @@
     </div>
   </main>
   {% include "cinema/templates/_footer.html" %}
+  {% include "cinema/templates/_featured_resource_modal.html" %}
+  <script src="/themes/cinema/assets/js/featured-resources.js?v=1.0.1"></script>
   <script src="/themes/cinema/assets/js/film-trending.js?v=1.0.1"></script>
 </body>
 </html>
