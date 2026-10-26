@@ -21,6 +21,9 @@
 
   function showItems(items) {
     grid.replaceChildren();
+    const firstRowSize = window.matchMedia('(max-width: 680px)').matches
+      ? 2
+      : window.matchMedia('(max-width: 1100px)').matches ? 4 : 6;
     items.forEach((item, index) => {
       const card = document.createElement('a');
       card.className = 'cinema-film-card';
@@ -38,7 +41,7 @@
         const image = document.createElement('img');
         poster.classList.add('is-loading');
         image.alt = '';
-        image.loading = 'lazy';
+        image.loading = index < firstRowSize ? 'eager' : 'lazy';
         image.addEventListener('load', () => {
           poster.classList.remove('is-loading');
           image.classList.add('is-loaded');

@@ -14,7 +14,7 @@
   padding: 0 2px;
   background: none;
   color: #686d77;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
@@ -66,16 +66,17 @@
 .cinema-films-status[hidden] { display: none; }
 
 @media (max-width: 1100px) {
-  .topbar--with-films { height: auto; min-height: 70px; flex-wrap: wrap; gap: 0 24px; padding-top: 8px; padding-bottom: 8px; }
+  .topbar--with-films { height: auto; min-height: 76px; flex-wrap: wrap; gap: 0 24px; padding-top: 8px; padding-bottom: 8px; }
   .cinema-film-tabs { order: 4; width: 100%; height: 35px; gap: 22px; }
   .cinema-films-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @media (max-width: 680px) {
   .topbar--with-films { gap: 0 10px; }
-  .cinema-film-tabs { height: 34px; gap: 20px; }
-  .cinema-film-tab { font-size: 12px; }
-  .cinema-films-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
+  .cinema-film-tabs { height: 40px; gap: 22px; }
+  .cinema-film-tab { font-size: 15px; }
+  .cinema-films-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 12px; }
+  .cinema-film-name { margin-top: 8px; font-size: 14px; line-height: 1.4; }
   .cinema-films-count { display: none; }
 }
 
