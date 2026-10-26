@@ -5,6 +5,7 @@ from app import app
 from src.db.resources import (
     delete_by_share_link,
     get_resource_by_share_link,
+    insert_resource_simple,
     list_resources,
 )
 from src.db.temp_shares import (
@@ -47,6 +48,30 @@ class TestTransferAndResourcePersistence(unittest.TestCase):
         with db_cursor() as cur:
             cur.execute("DELETE FROM temp_share WHERE original_url LIKE '%test%' OR original_url LIKE '%orig_%' OR temp_share_url LIKE '%test%'")
             cur.execute("DELETE FROM resources WHERE share_link LIKE '%test%' OR share_link LIKE '%api_test%'")
+
+    @patch("src.routes.search_routes.resolve_view_url")
+    def test_view_link_reuses_all_library_links_without_retransfer(self, resolve_mock):
+        for index, origin_type in enumerate(("manual", "relay"), start=1):
+            link = f"https://pan.quark.cn/s/library_test_{index}"
+            saved, _, _ = insert_resource_simple({
+                "name": f"资源库测试 {index}",
+                "share_link": link,
+                "cloud_name": "夸克网盘",
+                "origin_type": origin_type,
+            })
+            self.assertTrue(saved)
+            self.assertIsNone(get_resource_by_share_link(link)["file_id"])
+
+            response = self.client.post("/api/view-link", json={
+                "title": f"资源库测试 {index}",
+                "url": link,
+                "netdisk_name": "夸克网盘",
+            })
+            self.assertEqual(200, response.status_code)
+            self.assertEqual(link, response.get_json()["url"])
+            self.assertEqual("original", response.get_json()["mode"])
+
+        resolve_mock.assert_not_called()
 
     @patch("src.pan_operator._handle_netdisk_operation")
     @patch("src.services.temp_share_service.get_and_validate_credential", return_value="mock_cookie_val_long_enough_123456789012345678901234567890")

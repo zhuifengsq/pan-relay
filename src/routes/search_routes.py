@@ -7,6 +7,7 @@ import logging
 import time
 
 from src.pan_operator import create_share, del_share
+from src.db.resources import get_resource_by_share_link
 from src.services.log_service import record_log
 from src.services.search_service import (
     generate_search_stream_events,
@@ -273,7 +274,15 @@ def resolve_view_link():
         )
         return jsonify({"success": False, "message": "缺少链接参数"}), 400
 
-    resolved = resolve_view_url(title=title, original_url=original_url, netdisk_name=netdisk_name)
+    library_resource = get_resource_by_share_link(original_url)
+    if library_resource:
+        resolved = {
+            "url": library_resource["share_link"],
+            "mode": "original",
+            "netdisk_name": netdisk_name or library_resource.get("cloud_name", ""),
+        }
+    else:
+        resolved = resolve_view_url(title=title, original_url=original_url, netdisk_name=netdisk_name)
     duration_ms = int((time.time() - start_time) * 1000)
     record_log(
         log_type="transfer",
