@@ -9,7 +9,12 @@ from src.db.logs import (
     cleanup_logs_before_days,
     get_logs_summary_stats,
 )
-from src.services.log_service import record_log, export_logs_csv, get_current_client_ip
+from src.services.log_service import (
+    record_log,
+    export_logs_csv,
+    get_current_client_ip,
+    flush_log_queue,
+)
 from src.services.system_config_service import save_public_search_api_config
 from src.utils.auth_utils import create_jwt_token
 
@@ -263,6 +268,9 @@ class TestSystemLogs(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         # 读取流以触发生成器执行与日志记录
         _ = resp.data
+
+        # 日志采用异步队列落库，读取前先等待写入完成（不改变断言要求）
+        self.assertTrue(flush_log_queue(5.0))
 
         # 验证记录的日志 client_ip 为传递的真实 IP
         success, _, data = query_system_logs(q="ClientIpStreamTest")

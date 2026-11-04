@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.db.connection import Error, db_cursor, get_db_connection
@@ -302,7 +303,7 @@ def get_resource_hall_items(limit: int = 8) -> List[Dict[str, Any]]:
     sql = """
     SELECT id, name, share_link, cloud_name, type, cover_url, created_at
     FROM resources
-    WHERE COALESCE(share_link, '') != ''
+    WHERE share_link IS NOT NULL AND share_link <> ''
     ORDER BY created_at DESC, id DESC
     LIMIT ?
     """
@@ -579,24 +580,42 @@ def delete_resource_by_id(resource_id: int) -> Tuple[bool, str, Optional[Dict[st
         conn.close()
 
 
+DEFAULT_RESOURCE_SEARCH_LIMIT = 500
+
+
+def _get_resource_search_limit() -> int:
+    """内部资源搜索的最大返回条数（默认 500，可用 RESOURCE_SEARCH_LIMIT 调整）。"""
+    try:
+        limit = int(os.environ.get("RESOURCE_SEARCH_LIMIT", DEFAULT_RESOURCE_SEARCH_LIMIT))
+    except (TypeError, ValueError):
+        limit = DEFAULT_RESOURCE_SEARCH_LIMIT
+    return max(1, limit)
+
+
 def search_resources_by_title_terms(terms: List[str]) -> List[Tuple]:
     """
     根据标题中的任一搜索词搜索资源（用于搜索服务）。
     返回: [(name, share_link, cloud_name, created_at), ...]
+    结果条数上限由 RESOURCE_SEARCH_LIMIT 控制（默认 500），避免大库时一次性
+    把海量行拉进内存（后续搜索缓存与接口本身也有上限，实际展示不受影响）。
     """
     clean_terms = [str(term).strip() for term in terms if str(term).strip()]
     if not clean_terms:
         return []
 
+    limit = _get_resource_search_limit()
     conditions = " OR ".join("name LIKE ?" for _ in clean_terms)
-    sql = f"SELECT name, share_link, cloud_name, created_at, remarks, cover_url FROM resources WHERE {conditions}"
+    sql = (
+        "SELECT name, share_link, cloud_name, created_at, remarks, cover_url "
+        f"FROM resources WHERE {conditions} LIMIT ?"
+    )
     conn = get_db_connection()
     if not conn:
         return []
 
     try:
         cursor = conn.cursor()
-        cursor.execute(sql, [f"%{term}%" for term in clean_terms])
+        cursor.execute(sql, [f"%{term}%" for term in clean_terms] + [limit])
         results = cursor.fetchall()
         return results
     except Error as err:

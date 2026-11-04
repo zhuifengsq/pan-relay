@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS resources (
 CREATE INDEX IF NOT EXISTS idx_resources_name ON resources(name);
 CREATE INDEX IF NOT EXISTS idx_resources_health ON resources(health_status);
 CREATE INDEX IF NOT EXISTS idx_resources_origin ON resources(origin_type);
+-- 首页/资源大厅“最近有 share_link 的资源”按创建时间倒序取前 N 条：
+-- 部分索引只覆盖 share_link 非空行，查询可直接按索引顺序读取，避免全表扫描 + 临时 B 树排序
+CREATE INDEX IF NOT EXISTS idx_resources_share_created ON resources(created_at DESC, id DESC)
+  WHERE share_link IS NOT NULL AND share_link <> '';
 
 CREATE TABLE IF NOT EXISTS cinema_featured_resources (
   resource_id INTEGER PRIMARY KEY,
@@ -95,6 +99,8 @@ CREATE TABLE IF NOT EXISTS temp_share (
 
 CREATE INDEX IF NOT EXISTS idx_temp_share_lookup ON temp_share(cloud_name, status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_temp_share_original ON temp_share(original_url);
+-- 过期临时分享清理按 status + expires_at 过滤，原索引左前缀是 cloud_name 无法命中
+CREATE INDEX IF NOT EXISTS idx_temp_share_status_expires ON temp_share(status, expires_at);
 
 CREATE TABLE IF NOT EXISTS telegram_channel (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

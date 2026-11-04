@@ -107,6 +107,8 @@ pip install -r requirements.txt
 python app.py
 ```
 
+> 🚀 **生产环境**请使用 waitress 启动（Docker 镜像已默认使用该方式）：`python serve.py`，可通过 `WAITRESS_THREADS` 调整工作线程数；健康检查端点为 `GET /healthz`。更多参数见 [生产环境部署与运维手册](docs/deployment_guide.md)。
+
 ---
 
 ### 🌐 服务访问与管理后台

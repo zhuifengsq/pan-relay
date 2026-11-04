@@ -17,8 +17,8 @@ from src.routes.search_sources_routes import search_sources_bp
 from src.routes.dashboard_routes import dashboard_bp
 from src.routes.api_v1_routes import api_v1_bp
 from src.routes.log_routes import log_bp
-from src.configs.app_config import SECRET_KEY
-from src.db.connection import init_sqlite_db
+from src.configs.app_config import IS_DEFAULT_SECRET_KEY, SECRET_KEY
+from src.db.connection import get_db_connection, init_sqlite_db
 from src.services.scheduler_service import start_scheduler
 from src.services.system_config_service import (
     get_frontend_link_mode,
@@ -53,6 +53,12 @@ import jinja2
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+
+if IS_DEFAULT_SECRET_KEY:
+    logger.warning(
+        "检测到未配置 SECRET_KEY，当前使用内置默认密钥；生产环境请在 .env 中设置随机 SECRET_KEY，"
+        "否则管理员 JWT / 会话存在被伪造风险。"
+    )
 
 # 配置多主题模板加载器支持
 themes_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "themes")
@@ -275,6 +281,33 @@ def search_page():
 @app.route('/docs')
 def public_api_docs_page():
     return render_template('api_docs.html')
+
+
+# 容器 / 负载均衡健康检查：只探测进程与 SQLite 可用性，不触发登录跳转或外部请求
+@app.route('/healthz')
+def healthz():
+    db_status = "error"
+    try:
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                cursor.close()
+                db_status = "ok"
+            finally:
+                conn.close()
+    except Exception as exc:
+        logger.warning(f"健康检查数据库探活失败: {exc}")
+
+    healthy = db_status == "ok"
+    payload = {
+        "status": "ok" if healthy else "degraded",
+        "db": db_status,
+        "time": datetime.now().isoformat(timespec="seconds"),
+    }
+    return jsonify(payload), (200 if healthy else 503)
 
 
 # 根路径 Favicon 路由 (消除浏览器自动请求 /favicon.ico 导致的 404，统一返回系统项目图标)

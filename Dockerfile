@@ -23,9 +23,9 @@ COPY . .
 # 暴露默认端口
 EXPOSE 5004
 
-# 容器健康检查
+# 容器健康检查（/healthz 只探测进程与 SQLite，不受前端关闭/登录跳转影响）
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:5004/ || exit 1
+    CMD curl -f http://localhost:5004/healthz || exit 1
 
-# 启动应用
-CMD ["python", "app.py"]
+# 生产环境使用 waitress WSGI 服务器启动（默认 8 个工作线程，可用 WAITRESS_THREADS 调整）
+CMD ["python", "serve.py"]

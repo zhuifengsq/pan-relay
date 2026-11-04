@@ -96,6 +96,8 @@ class SQLiteConnectionWrapper:
 
 
 _db_initialized = False
+# 记录已完成初始化的数据库文件路径，避免每次取连接都重复探测 sqlite_master（P0 性能优化）。
+_initialized_db_paths: set = set()
 
 
 def _migrate_schema_columns(conn: sqlite3.Connection):
@@ -122,11 +124,21 @@ def _migrate_schema_columns(conn: sqlite3.Connection):
                     position INTEGER NOT NULL UNIQUE
                 );
             """)
+            # 旧库启动时自动补建“首页资源大厅”部分索引（只覆盖 share_link 非空行）
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_resources_share_created ON resources(created_at DESC, id DESC) "
+                "WHERE share_link IS NOT NULL AND share_link <> '';"
+            )
+            # 清理早期版本创建但未被查询使用的普通时间索引
+            conn.execute("DROP INDEX IF EXISTS idx_resources_created_at;")
 
         # 2. 检查 temp_share 是否有 account_id
         temp_cols = [row[1] for row in conn.execute("PRAGMA table_info(temp_share);").fetchall()]
         if temp_cols and "account_id" not in temp_cols:
             conn.execute("ALTER TABLE temp_share ADD COLUMN account_id INTEGER DEFAULT NULL;")
+        if temp_cols:
+            # 旧库启动时自动补建“过期清理”的索引
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_temp_share_status_expires ON temp_share(status, expires_at);")
 
         # 3. 检查 resource_requests 表
         conn.execute("""
@@ -174,6 +186,7 @@ def init_sqlite_db():
 
         raw_conn.close()
         _db_initialized = True
+        _initialized_db_paths.add(db_path)
 
         try:
             from src.services.system_config_service import init_default_search_sources
@@ -191,22 +204,15 @@ def get_db_connection() -> Optional[SQLiteConnectionWrapper]:
     返回封装后的 SQLiteConnectionWrapper。
     """
     global _db_initialized
-    if not _db_initialized or not os.path.exists(SQLITE_DB_PATH):
+    db_path = SQLITE_DB_PATH
+    # 快速路径：本进程已初始化过该库文件且文件仍存在时，直接建立连接，
+    # 不再每次连接都额外探测表结构（原实现每次操作多开一条连接、多执行一次查询）。
+    if not (_db_initialized and db_path in _initialized_db_paths and os.path.exists(db_path)):
         init_sqlite_db()
-    else:
-        try:
-            with sqlite3.connect(SQLITE_DB_PATH, timeout=5.0) as check_conn:
-                row = check_conn.execute(
-                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='resources';"
-                ).fetchone()
-                if not row or row[0] == 0:
-                    init_sqlite_db()
-        except Exception:
-            init_sqlite_db()
 
     try:
-        raw_conn = sqlite3.connect(SQLITE_DB_PATH, timeout=30.0)
-        raw_conn.execute("PRAGMA journal_mode=WAL;")
+        raw_conn = sqlite3.connect(db_path, timeout=30.0)
+        # journal_mode 已在 init_sqlite_db 中持久化设置；synchronous 是连接级设置，需每次设置。
         raw_conn.execute("PRAGMA synchronous=NORMAL;")
         return SQLiteConnectionWrapper(raw_conn)
     except sqlite3.Error as err:

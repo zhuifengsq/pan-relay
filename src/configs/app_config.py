@@ -23,7 +23,9 @@ def _get_int_env(name, default, minimum=1):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 设置 SECRET_KEY，用于会话管理与 JWT 签名
-SECRET_KEY = os.getenv('SECRET_KEY', 'pan-relay-secret-key-default')
+DEFAULT_SECRET_KEY = 'pan-relay-secret-key-default'
+SECRET_KEY = os.getenv('SECRET_KEY', DEFAULT_SECRET_KEY)
+IS_DEFAULT_SECRET_KEY = SECRET_KEY == DEFAULT_SECRET_KEY
 
 # 网盘信息
 QUARK_PAN_COOKIE = os.getenv('QUARK_PAN_COOKIE')
@@ -33,6 +35,7 @@ DEFAULT_SAVE_DIR = os.getenv('DEFAULT_SAVE_DIR')
 # 管理员账号密码（默认: admin / admin123）
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME') or 'admin'
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'admin123'
+IS_DEFAULT_ADMIN_PASSWORD = ADMIN_PASSWORD == 'admin123'
 
 # Telegram 搜索全局选项与配置
 TG_SEARCH_ENABLED = _get_bool_env("TG_SEARCH_ENABLED", True)

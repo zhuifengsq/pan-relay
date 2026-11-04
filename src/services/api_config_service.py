@@ -6,6 +6,7 @@ import concurrent.futures
 import jmespath
 import requests
 
+from src.utils.cache_events import notify_search_cache_invalidated
 from src.utils.test_keywords import build_test_keywords
 from src.utils.api_headers import parse_api_headers
 
@@ -117,37 +118,51 @@ def _request_api(api_config):
 
 def add_api_config_to_db(new_config):
     """向数据库中添加一条 API 配置记录"""
-    return insert_config(new_config)
+    result = insert_config(new_config)
+    notify_search_cache_invalidated("api_config:add")
+    return result
 
 
 def copy_api_config_in_db(api_id):
     """在数据库中复制一条 API 配置记录"""
-    return copy_config(api_id)
+    result = copy_config(api_id)
+    notify_search_cache_invalidated("api_config:copy")
+    return result
 
 
 def update_api_config_in_db(api_id, updated_config):
     """更新一条 API 配置记录"""
-    return update_config(api_id, updated_config)
+    result = update_config(api_id, updated_config)
+    notify_search_cache_invalidated("api_config:update")
+    return result
 
 
 def delete_api_config_in_db(api_id):
     """删除一条 API 配置记录"""
-    return delete_config(api_id)
+    result = delete_config(api_id)
+    notify_search_cache_invalidated("api_config:delete")
+    return result
 
 
 def set_api_enabled_in_db(api_id, is_enabled):
     """切换单个 API 的启用状态，限制异常状态下启用"""
-    return set_enabled(api_id, is_enabled)
+    result = set_enabled(api_id, is_enabled)
+    notify_search_cache_invalidated("api_config:set_enabled")
+    return result
 
 
 def enable_all_apis_in_db():
     """一键启用所有【状态正常 (status=1)】的 API"""
-    return enable_all_normal()
+    result = enable_all_normal()
+    notify_search_cache_invalidated("api_config:enable_all")
+    return result
 
 
 def disable_all_apis_in_db():
     """一键禁用所有 API"""
-    return disable_all()
+    result = disable_all()
+    notify_search_cache_invalidated("api_config:disable_all")
+    return result
 
 
 def update_config_with_keyword(config, placeholder, keyword):

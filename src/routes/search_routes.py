@@ -63,7 +63,11 @@ def search_stream():
             for payload in generate_search_stream_events(keyword, action="search.web"):
                 yield f"data: {payload}\n\n"
 
-    return Response(stream_with_context(generate_events()), mimetype="text/event-stream")
+    response = Response(stream_with_context(generate_events()), mimetype="text/event-stream")
+    # SSE 不应被浏览器/反向代理缓存或缓冲，否则首条结果会被延迟
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
 @search_bp.route("/api", methods=["GET"])

@@ -1,6 +1,8 @@
 # src/routes/auth_routes.py
 
 import logging
+import os
+
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 import jwt
 
@@ -17,6 +19,27 @@ from src.utils.auth_utils import create_jwt_token, token_required
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__)
+
+
+def _auth_cookie_secure() -> bool:
+    """鉴权 Cookie 是否加 Secure 标记：COOKIE_SECURE 显式配置优先，否则跟随当前请求是否 HTTPS。"""
+    flag = os.environ.get("COOKIE_SECURE", "").strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    if flag in {"0", "false", "no", "off"}:
+        return False
+    return request.is_secure
+
+
+def _set_auth_cookie(response, token: str) -> None:
+    """统一设置管理员鉴权 Cookie：HttpOnly + SameSite=Lax（可选 Secure），降低 XSS/CSRF 风险。"""
+    response.set_cookie(
+        'token',
+        token,
+        httponly=True,
+        samesite='Lax',
+        secure=_auth_cookie_secure(),
+    )
 
 
 # 登录页面路由
@@ -42,7 +65,7 @@ def login():
         if is_valid:
             token = create_jwt_token(username=username)
             response = redirect(url_for('dashboard.dashboard_page'))
-            response.set_cookie('token', token, httponly=True)
+            _set_auth_cookie(response, token)
 
             logger.info(f"管理员 {username} 登录成功")
             insert_system_log(
@@ -118,7 +141,7 @@ def api_change_password():
     # 密码修改成功后无缝签发新 Token 刷新 Cookie
     new_token = create_jwt_token(username=current_user)
     resp = jsonify({'success': True, 'message': '密码修改成功'})
-    resp.set_cookie('token', new_token, httponly=True)
+    _set_auth_cookie(resp, new_token)
     return resp
 
 

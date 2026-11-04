@@ -7,6 +7,56 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.db.connection import Error, get_db_connection
 
 logger = logging.getLogger(__name__)
+
+_LOG_FIELDS = (
+    "log_type",
+    "action",
+    "query_text",
+    "status_code",
+    "error_message",
+    "duration_ms",
+    "result_count",
+    "client_ip",
+)
+
+_INSERT_SYSTEM_LOG_SQL = """
+    INSERT INTO system_logs (
+        log_type, action, query_text, status_code, error_message,
+        duration_ms, result_count, client_ip, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+"""
+
+
+def _normalize_system_log_row(record: Dict[str, Any]) -> Tuple[Any, ...]:
+    """把一条日志字典规整为可直接绑定到 SQL 的参数元组（字段超长/类型异常均降级处理）。"""
+    try:
+        status_code_value = int(record.get("status_code") or 200)
+    except (TypeError, ValueError):
+        status_code_value = 200
+    try:
+        duration_value = max(0, int(record.get("duration_ms") or 0))
+    except (TypeError, ValueError):
+        duration_value = 0
+    try:
+        result_count_value = max(0, int(record.get("result_count") or 0))
+    except (TypeError, ValueError):
+        result_count_value = 0
+
+    query_text = record.get("query_text")
+    error_message = record.get("error_message")
+    client_ip = record.get("client_ip")
+    return (
+        str(record.get("log_type") or "system")[:32],
+        str(record.get("action") or "unknown")[:64],
+        str(query_text)[:2048] if query_text is not None else None,
+        status_code_value,
+        str(error_message)[:4096] if error_message is not None else None,
+        duration_value,
+        result_count_value,
+        str(client_ip or "")[:64] if client_ip else None,
+    )
+
+
 def insert_system_log(
     log_type: str,
     action: str,
@@ -27,21 +77,18 @@ def insert_system_log(
     try:
         cursor = conn.cursor()
         cursor.execute(
-            """
-            INSERT INTO system_logs (
-                log_type, action, query_text, status_code, error_message,
-                duration_ms, result_count, client_ip, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
-            """,
-            (
-                str(log_type or "system")[:32],
-                str(action or "unknown")[:64],
-                str(query_text)[:2048] if query_text is not None else None,
-                int(status_code or 200),
-                str(error_message)[:4096] if error_message is not None else None,
-                max(0, int(duration_ms or 0)),
-                max(0, int(result_count or 0)),
-                str(client_ip or "")[:64] if client_ip else None,
+            _INSERT_SYSTEM_LOG_SQL,
+            _normalize_system_log_row(
+                {
+                    "log_type": log_type,
+                    "action": action,
+                    "query_text": query_text,
+                    "status_code": status_code,
+                    "error_message": error_message,
+                    "duration_ms": duration_ms,
+                    "result_count": result_count,
+                    "client_ip": client_ip,
+                }
             ),
         )
         conn.commit()
@@ -52,6 +99,36 @@ def insert_system_log(
         return None
     finally:
         cursor.close()
+        conn.close()
+
+
+def insert_system_logs_batch(records: List[Dict[str, Any]]) -> int:
+    """
+    批量写入系统日志（单连接、单事务 executemany），返回写入条数。
+    异步日志线程积压时按批落库，避免每条日志一次连接 + 一次 commit 的开销。
+    """
+    if not records:
+        return 0
+
+    rows = [_normalize_system_log_row(record) for record in records]
+
+    conn = get_db_connection()
+    if not conn:
+        return 0
+
+    try:
+        cursor = conn.cursor()
+        try:
+            cursor.executemany(_INSERT_SYSTEM_LOG_SQL, rows)
+            conn.commit()
+            return len(rows)
+        except Error as err:
+            logger.error(f"批量写入系统运行日志失败: {err}")
+            conn.rollback()
+            return 0
+        finally:
+            cursor.close()
+    finally:
         conn.close()
 
 

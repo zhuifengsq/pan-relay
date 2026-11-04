@@ -1,8 +1,11 @@
+import atexit
 import concurrent.futures
 import json
 import logging
+import os
 import random
 import re
+import threading
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from urllib.parse import urlparse
@@ -27,8 +30,7 @@ from src.utils.netdisk_utils import (
 )
 from src.utils.api_headers import parse_api_headers
 from src.services.log_service import record_log, get_current_client_ip
-
-import threading
+from src.utils.cache_events import register_search_cache_invalidator
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,54 @@ logger = logging.getLogger(__name__)
 _SEARCH_CACHE: Dict[str, Tuple[float, List[SearchResultItem]]] = {}
 _SEARCH_CACHE_LOCK = threading.Lock()
 SEARCH_CACHE_TTL_SECONDS = 300  # 默认缓存 5 分钟 (300 秒)
+# 单关键词最多缓存的条数：仅用于限制内存占用，不改变调用方 limit 语义
+# （缓存保存完整枚举结果后可能远大于一次请求的 limit）。
+SEARCH_CACHE_MAX_ITEMS_PER_KEYWORD = 1000
+
+
+# --- 全局共享上游搜索线程池 ---
+# 所有并发搜索请求复用同一个线程池，避免每个请求各建 3 个 ThreadPoolExecutor
+# 导致线程数随并发度线性膨胀。线程规模由 SEARCH_UPSTREAM_MAX_WORKERS 控制（默认 32），
+# 可选 SEARCH_UPSTREAM_DEADLINE_SECONDS 对单次搜索的所有上游任务设置全局截止时间（默认关闭）。
+_SEARCH_EXECUTOR_LOCK = threading.Lock()
+_SEARCH_EXECUTOR: Optional[concurrent.futures.ThreadPoolExecutor] = None
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(str(os.environ.get(name, "") or default).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+_SEARCH_UPSTREAM_MAX_WORKERS = max(_env_int("SEARCH_UPSTREAM_MAX_WORKERS", 32), 4)
+
+
+def _get_search_executor() -> concurrent.futures.ThreadPoolExecutor:
+    global _SEARCH_EXECUTOR
+    if _SEARCH_EXECUTOR is not None:
+        return _SEARCH_EXECUTOR
+    with _SEARCH_EXECUTOR_LOCK:
+        if _SEARCH_EXECUTOR is None:
+            _SEARCH_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+                max_workers=_SEARCH_UPSTREAM_MAX_WORKERS,
+                thread_name_prefix="search-upstream",
+            )
+    return _SEARCH_EXECUTOR
+
+
+def _get_upstream_global_deadline_seconds() -> float:
+    try:
+        return max(float(str(os.environ.get("SEARCH_UPSTREAM_DEADLINE_SECONDS", "") or 0)), 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@atexit.register
+def _shutdown_search_executor() -> None:
+    executor = _SEARCH_EXECUTOR
+    if executor is not None:
+        executor.shutdown(wait=False)
 
 
 def get_cached_search_items(keyword: str) -> Optional[List[SearchResultItem]]:
@@ -60,6 +110,8 @@ def set_cached_search_items(keyword: str, items: List[Any]):
     if not clean_kw or not items:
         return
     typed_items = [SearchResultItem.from_item(i) for i in items if i]
+    # 单个关键词的结果集截断，避免完整枚举缓存导致内存无上限增长。
+    typed_items = typed_items[:SEARCH_CACHE_MAX_ITEMS_PER_KEYWORD]
     now = time.time()
     with _SEARCH_CACHE_LOCK:
         if len(_SEARCH_CACHE) > 500:
@@ -78,6 +130,11 @@ def clear_search_cache():
     with _SEARCH_CACHE_LOCK:
         _SEARCH_CACHE.clear()
     logger.info("搜索结果内存缓存已主动清空。")
+
+
+# 后台修改搜索相关配置（API 源、TG 频道、系统配置等）时主动失效缓存，
+# 避免配置变更后 5 分钟内仍返回旧源的结果。
+register_search_cache_invalidator(clear_search_cache)
 
 
 
@@ -566,49 +623,46 @@ def iter_upstream_search_results(keyword):
     api_configs = replace_keyword_in_config(api_configs, "[[keyword]]", keyword)
 
     tg_channels = get_enabled_channel_names() if tg_config.get("enabled", True) else []
-    tg_workers = min(max(int(tg_config.get("max_workers", 4)), 1), len(tg_channels))
     tg_timeout = max(int(tg_config.get("timeout", 10)), 1)
     tg_proxy = tg_config.get("proxy") or None
 
     plugins = plugin_manager.get_enabled_plugins()
 
-    executors = []
+    # 复用全局线程池（见模块顶部说明），不再为每次搜索请求创建独立线程池。
+    executor = _get_search_executor()
+    global_deadline_seconds = _get_upstream_global_deadline_seconds()
+    started_at = time.monotonic()
+    search_deadline = started_at + global_deadline_seconds if global_deadline_seconds > 0 else float("inf")
+
     future_types = {}
     future_deadlines = {}
     try:
         if api_configs:
-            api_executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=min(api_config["max_workers"], len(api_configs)), thread_name_prefix="api-search"
-            )
-            executors.append(api_executor)
             for config in api_configs:
-                future_types[api_executor.submit(process_config, config, keyword, api_config["timeout"])] = "API"
+                future = executor.submit(process_config, config, keyword, api_config["timeout"])
+                future_types[future] = "API"
+                future_deadlines[future] = search_deadline
 
         if tg_channels:
-            tg_executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=tg_workers, thread_name_prefix="tg-search"
-            )
-            executors.append(tg_executor)
             for channel in tg_channels:
-                future_types[
-                    tg_executor.submit(
-                        search_telegram_channel,
-                        keyword,
-                        channel,
-                        proxy=tg_proxy,
-                        timeout=tg_timeout,
-                    )
-                ] = f"Telegram @{channel}"
+                future = executor.submit(
+                    search_telegram_channel,
+                    keyword,
+                    channel,
+                    proxy=tg_proxy,
+                    timeout=tg_timeout,
+                )
+                future_types[future] = f"Telegram @{channel}"
+                future_deadlines[future] = search_deadline
 
         if plugins:
-            plugin_executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=min(plugin_config["max_workers"], len(plugins)), thread_name_prefix="plugin-search"
-            )
-            executors.append(plugin_executor)
             for plugin in plugins:
-                future = plugin_executor.submit(_search_plugin, plugin, keyword)
+                future = executor.submit(_search_plugin, plugin, keyword)
                 future_types[future] = f"插件 {plugin.name}"
-                future_deadlines[future] = time.monotonic() + plugin_config["timeout"]
+                # 插件超时沿用原语义（相对提交时刻），并受可选全局截止时间约束
+                future_deadlines[future] = min(
+                    search_deadline, started_at + max(float(plugin_config["timeout"]), 1.0)
+                )
 
         pending = set(future_types)
         while pending:
@@ -616,7 +670,11 @@ def iter_upstream_search_results(keyword):
             for future in expired:
                 pending.remove(future)
                 future.cancel()
-                logger.warning("%s 搜索超时（限制：%ss）", future_types[future], plugin_config["timeout"])
+                logger.warning(
+                    "%s 搜索超时（限制：%ss），结果已丢弃",
+                    future_types[future],
+                    round(future_deadlines[future] - started_at, 1),
+                )
             if not pending:
                 break
             next_deadline = min((future_deadlines.get(future, float("inf")) for future in pending), default=float("inf"))
@@ -632,8 +690,9 @@ def iter_upstream_search_results(keyword):
                 except Exception as error:
                     logger.error("%s 搜索任务异常: %s", source_name, error)
     finally:
-        for executor in executors:
-            executor.shutdown(wait=False, cancel_futures=True)
+        # 只取消尚未开始的任务；线程池由进程复用，此处不能 shutdown。
+        for future in future_types:
+            future.cancel()
 
 
 def search_in_database(keyword):
@@ -682,6 +741,35 @@ def search_in_database(keyword):
     except Exception as err:
         logger.error(f"数据库错误: {err}")
         return []
+
+
+def _merge_stream_items_into_map(items, target_map: Dict[str, SearchResultItem]):
+    """把一批搜索结果按规范化 key 合并进 target_map，返回本次新增/改进的条目。"""
+    unique_items = []
+    for item in items:
+        try:
+            typed = SearchResultItem.from_item(item)
+        except Exception:
+            continue
+        url = (typed.share_link or "").strip()
+        if not url:
+            continue
+        key = extract_canonical_resource_key(url) or f"url:{url}"
+        if key not in target_map:
+            target_map[key] = typed
+            unique_items.append(typed)
+        else:
+            existing_item = target_map[key]
+            better_item = merge_or_select_better(existing_item, typed)
+            existing_pwd = existing_item.password or extract_password_from_url(existing_item.share_link)
+            better_pwd = better_item.password or extract_password_from_url(better_item.share_link)
+            has_new_pwd = bool(better_pwd and not existing_pwd)
+            has_higher_score = calculate_completeness_score(better_item) > calculate_completeness_score(existing_item)
+
+            if has_new_pwd or has_higher_score:
+                target_map[key] = better_item
+                unique_items.append(better_item)
+    return unique_items
 
 
 def generate_search_stream_events(
@@ -774,66 +862,52 @@ def generate_search_stream_events(
             return
 
         seen_items_map: Dict[str, SearchResultItem] = {}
+        # 缓存全集与本次输出分离：canonical_items_map 保存“完整枚举后的原始结果”，
+        # 不应用前台网盘/target_clouds/limit 过滤，读取缓存时再按调用方条件过滤。
+        canonical_items_map: Dict[str, SearchResultItem] = {}
+        completed_full_enumeration = True
 
-        def _dedupe_stream_chunk(items):
-            unique_items = []
-            for item in items:
-                try:
-                    typed = SearchResultItem.from_item(item)
-                except Exception:
-                    continue
-                url = (typed.share_link or "").strip()
-                if not url:
-                    continue
-                key = extract_canonical_resource_key(url) or f"url:{url}"
-                if key not in seen_items_map:
-                    seen_items_map[key] = typed
-                    unique_items.append(typed)
-                else:
-                    existing_item = seen_items_map[key]
-                    better_item = merge_or_select_better(existing_item, typed)
-                    existing_pwd = existing_item.password or extract_password_from_url(existing_item.share_link)
-                    better_pwd = better_item.password or extract_password_from_url(better_item.share_link)
-                    has_new_pwd = bool(better_pwd and not existing_pwd)
-                    has_higher_score = calculate_completeness_score(better_item) > calculate_completeness_score(existing_item)
+        raw_db_results = search_in_database(keyword)
+        _merge_stream_items_into_map(raw_db_results, canonical_items_map)
 
-                    if has_new_pwd or has_higher_score:
-                        seen_items_map[key] = better_item
-                        unique_items.append(better_item)
-            return unique_items
-
-        db_results = search_in_database(keyword)
+        db_results = raw_db_results
         if should_apply_frontend_filter:
             db_results = filter_results_by_frontend_netdisks(db_results)
         if target_clouds:
             db_results = _filter_results_by_cloud_name(db_results, target_clouds)
         db_results = filter_results_by_title(filter_search_results(db_results), keyword)
-        db_results = _dedupe_stream_chunk(db_results)
+        db_results = _merge_stream_items_into_map(db_results, seen_items_map)
         if db_results:
             yield json.dumps({"type": "initial", "results": _serialize_items(db_results)})
 
         if scope != "own":
             for results in iter_upstream_search_results(keyword):
+                _merge_stream_items_into_map(results, canonical_items_map)
+
+                filtered_results = results
                 if should_apply_frontend_filter:
-                    results = filter_results_by_frontend_netdisks(results)
+                    filtered_results = filter_results_by_frontend_netdisks(filtered_results)
                 if target_clouds:
-                    results = _filter_results_by_cloud_name(results, target_clouds)
-                results = filter_results_by_title(filter_search_results(results), keyword)
-                results = _dedupe_stream_chunk(results)
-                if results:
-                    yield json.dumps({"type": "update", "results": _serialize_items(results)})
+                    filtered_results = _filter_results_by_cloud_name(filtered_results, target_clouds)
+                filtered_results = filter_results_by_title(filter_search_results(filtered_results), keyword)
+                filtered_results = _merge_stream_items_into_map(filtered_results, seen_items_map)
+                if filtered_results:
+                    yield json.dumps({"type": "update", "results": _serialize_items(filtered_results)})
 
                 if limit and limit > 0 and len(seen_items_map) >= limit:
                     logger.info("流式聚合搜索满足限额 limit=%d (已查获 %d 条)，自动触发阻断中断后续源。", limit, len(seen_items_map))
+                    completed_full_enumeration = False
                     break
 
-        # 搜索完成，将所有去重并排序后的最终结果加入 TTL 缓存
         final_stream_items = sort_search_results(list(seen_items_map.values()), keyword=keyword)
         if limit and limit > 0:
             final_stream_items = final_stream_items[:limit]
 
-        if final_stream_items:
-            set_cached_search_items(keyword, final_stream_items)
+        # 只缓存“完整枚举后的全集”：scope=own、limit 提前中断、部分上游失败时都不写缓存，
+        # 避免不完整结果在 5 分钟内污染其他调用方。缓存内容与前台/网盘/limit 过滤无关。
+        if scope != "own" and completed_full_enumeration and canonical_items_map:
+            full_cached_items = sort_search_results(list(canonical_items_map.values()), keyword=keyword)
+            set_cached_search_items(keyword, full_cached_items)
 
         duration_ms = int((time.time() - start_time) * 1000)
         record_log(
@@ -1251,7 +1325,7 @@ def search_public_resources(keyword="", limit=100, cloud_name=""):
     if limit and len(deduped_db) >= limit:
         logger.info("聚合搜索在数据库层已满足 limit=%d (找到 %d 条)，自动阻断后续上游网络开销", limit, len(deduped_db))
         sorted_results = sort_search_results(deduped_db, keyword=keyword)
-        set_cached_search_items(keyword, sorted_results)
+        # 该分支只枚举了本地库，不是完整聚合结果，写入缓存会污染全网搜索，故不缓存。
         limited_results = sorted_results[: max(limit, 1)]
         duration_ms = int((time.time() - start_time) * 1000)
         record_log(
@@ -1268,6 +1342,7 @@ def search_public_resources(keyword="", limit=100, cloud_name=""):
         ]
 
     # 2. 逐个接收上游数据源，只要去重后的符合条件结果数达到 limit，立即自动 break 退出（取消后续所有请求）
+    completed_full_enumeration = True
     for results in iter_upstream_search_results(keyword):
         if results:
             aggregated_results.extend(results)
@@ -1277,13 +1352,15 @@ def search_public_resources(keyword="", limit=100, cloud_name=""):
                 temp_deduped = dedupe_search_results(temp_filtered)
                 if len(temp_deduped) >= limit:
                     logger.info("聚合搜索累计数据已达限额 limit=%d (满足 %d 条)，自动阻断中断后续上游请求。", limit, len(temp_deduped))
+                    completed_full_enumeration = False
                     break
 
     # 敏感词过滤、去重与排序
     aggregated_results = filter_results_by_title(filter_search_results(aggregated_results), keyword)
     deduped_results = dedupe_search_results(aggregated_results)
     sorted_results = sort_search_results(deduped_results, keyword=keyword)
-    if sorted_results:
+    # 只缓存完整枚举得到的合集；缓存内容不含 cloud/limit 过滤，读取缓存时再按调用方条件过滤。
+    if completed_full_enumeration and sorted_results:
         set_cached_search_items(keyword, sorted_results)
 
     filtered_results = _filter_results_by_cloud_name(sorted_results, target_clouds)

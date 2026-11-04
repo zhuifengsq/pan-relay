@@ -2,6 +2,8 @@ import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from src.utils.cache_events import notify_search_cache_invalidated
+
 from src.db.telegram_channels import (
     delete_channel,
     get_all_channels,
@@ -70,6 +72,7 @@ def add_tg_channel(value: Any, is_enabled: bool = True) -> tuple[bool, str, Opti
     success, message, channel_id = insert_channel(channel, is_enabled)
     if not success:
         return False, message, None
+    notify_search_cache_invalidated("telegram_channel:add")
     return True, message, {
         "id": channel_id,
         "channel": channel,
@@ -80,15 +83,21 @@ def add_tg_channel(value: Any, is_enabled: bool = True) -> tuple[bool, str, Opti
 
 
 def delete_tg_channel(value: Any) -> tuple[bool, str]:
-    return delete_channel(normalize_tg_channel(value))
+    result = delete_channel(normalize_tg_channel(value))
+    notify_search_cache_invalidated("telegram_channel:delete")
+    return result
 
 
 def set_tg_channel_enabled(value: Any, is_enabled: bool) -> tuple[bool, str]:
-    return set_channel_enabled(normalize_tg_channel(value), is_enabled)
+    result = set_channel_enabled(normalize_tg_channel(value), is_enabled)
+    notify_search_cache_invalidated("telegram_channel:set_enabled")
+    return result
 
 
 def set_all_tg_channels_enabled(is_enabled: bool) -> tuple[bool, str, int]:
-    return set_all_channels_enabled(is_enabled)
+    result = set_all_channels_enabled(is_enabled)
+    notify_search_cache_invalidated("telegram_channel:set_all")
+    return result
 
 
 def save_tg_channel_health(value: Any, result: Dict[str, Any]) -> bool:

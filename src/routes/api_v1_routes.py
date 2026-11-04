@@ -250,7 +250,10 @@ def api_search_stream():
             ):
                 yield f"data: {payload}\n\n"
 
-    return Response(stream_with_context(generate_events()), mimetype="text/event-stream")
+    response = Response(stream_with_context(generate_events()), mimetype="text/event-stream")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
 

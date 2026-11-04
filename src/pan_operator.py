@@ -1,8 +1,12 @@
 import json
 import logging
+import os
 import threading
 import time
-from typing import Any, Dict, List
+from collections import OrderedDict
+from typing import Any, Dict, List, Optional
+
+import requests
 
 from src.clients import (
     AliyunPanClient,
@@ -27,18 +31,73 @@ from src.utils.netdisk_utils import match_netdisk_link, extract_password_from_ur
 
 logger = logging.getLogger(__name__)
 
-# 并发转存防击穿互斥锁表与临时转存结果缓存 (URL -> Result Record)
-_TRANSFER_LOCKS: Dict[str, threading.Lock] = {}
-_TRANSFER_LOCKS_MUTEX = threading.Lock()
-_TRANSFERRED_URL_CACHE: Dict[str, Dict[str, Any]] = {}
+# 转存/连接类异常意味着“远程操作结果不确定”（可能已经转存成功），
+# 此时不能简单换账号重跑，否则会产生重复转存、重复分享。
+_AMBIGUOUS_STORE_EXCEPTIONS = (
+    requests.exceptions.Timeout,
+    requests.exceptions.ConnectionError,
+    TimeoutError,
+)
+
+# 并发转存防击穿：固定 64 条带锁，避免按 URL 建锁导致字典无界增长
+_TRANSFER_LOCK_STRIPES = 64
+_TRANSFER_LOCKS: List[threading.Lock] = [threading.Lock() for _ in range(_TRANSFER_LOCK_STRIPES)]
+
+# 临时转存结果缓存 (URL -> Result Record)，LRU + 容量上限，避免长时间运行内存无界增长
+_TRANSFERRED_URL_CACHE_MAX = 5000
+_TRANSFERRED_URL_CACHE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_TRANSFERRED_URL_CACHE_LOCK = threading.Lock()
 
 
 def _get_transfer_lock(url: str) -> threading.Lock:
     clean_url = str(url or "").strip()
-    with _TRANSFER_LOCKS_MUTEX:
-        if clean_url not in _TRANSFER_LOCKS:
-            _TRANSFER_LOCKS[clean_url] = threading.Lock()
-        return _TRANSFER_LOCKS[clean_url]
+    return _TRANSFER_LOCKS[hash(clean_url) % len(_TRANSFER_LOCKS)]
+
+
+def _cache_transferred_url(url: str, record: Dict[str, Any]) -> None:
+    clean_url = str(url or "").strip()
+    if not clean_url:
+        return
+    with _TRANSFERRED_URL_CACHE_LOCK:
+        _TRANSFERRED_URL_CACHE[clean_url] = record
+        _TRANSFERRED_URL_CACHE.move_to_end(clean_url)
+        while len(_TRANSFERRED_URL_CACHE) > _TRANSFERRED_URL_CACHE_MAX:
+            _TRANSFERRED_URL_CACHE.popitem(last=False)
+
+
+def _get_cached_transferred_url(url: str) -> Optional[Dict[str, Any]]:
+    clean_url = str(url or "").strip()
+    if not clean_url:
+        return None
+    with _TRANSFERRED_URL_CACHE_LOCK:
+        record = _TRANSFERRED_URL_CACHE.get(clean_url)
+        if record is not None:
+            _TRANSFERRED_URL_CACHE.move_to_end(clean_url)
+        return record
+
+
+def _pop_cached_transferred_url(url: str) -> Optional[Dict[str, Any]]:
+    clean_url = str(url or "").strip()
+    if not clean_url:
+        return None
+    with _TRANSFERRED_URL_CACHE_LOCK:
+        return _TRANSFERRED_URL_CACHE.pop(clean_url, None)
+
+
+def _pop_cached_transferred_urls(share_url: Optional[str], file_id: Any = None) -> None:
+    """删除与某个分享链接/文件 ID 相关的缓存记录。"""
+    with _TRANSFERRED_URL_CACHE_LOCK:
+        keys_to_del = [
+            k for k, v in _TRANSFERRED_URL_CACHE.items()
+            if k == share_url
+            or (isinstance(v, dict) and (
+                v.get("share_link") == share_url
+                or v.get("share_url") == share_url
+                or (file_id and v.get("file_id") == file_id)
+            ))
+        ]
+        for key in keys_to_del:
+            _TRANSFERRED_URL_CACHE.pop(key, None)
 
 # --- 工具函数：凭证校验 ---
 
@@ -130,6 +189,15 @@ def _parse_file_id(file_id: Any) -> Any:
 
 # --- 核心逻辑：通用网盘操作处理器 ---
 
+def _get_store_settle_seconds() -> float:
+    """转存成功后的等待秒数，默认 0.5s 用于规避上游风控；批量入库时可用 PAN_STORE_SETTLE_SECONDS=0 关闭。"""
+    try:
+        seconds = float(os.environ.get("PAN_STORE_SETTLE_SECONDS", "0.5"))
+    except (TypeError, ValueError):
+        seconds = 0.5
+    return max(0.0, seconds)
+
+
 def _execute_store(client, share_url, to_pdir_path: str = '/'):
     """执行单个客户端转存与分享操作"""
     new_file_id, file_name, new_share_url = client.store(share_url, to_pdir_path)
@@ -137,7 +205,9 @@ def _execute_store(client, share_url, to_pdir_path: str = '/'):
         logger.error(f"[{client.__class__.__name__}] 转存或分享接口返回空数据")
         return None, None, None
     logger.info(f"[{client.__class__.__name__}] 处理成功: {file_name}")
-    time.sleep(0.5)
+    settle_seconds = _get_store_settle_seconds()
+    if settle_seconds > 0:
+        time.sleep(settle_seconds)
     return new_file_id, file_name, new_share_url
 
 
@@ -170,6 +240,13 @@ def _handle_netdisk_operation(client_class, client_credential, share_url, to_pdi
             return _execute_store(client, share_url, to_pdir_path)
         elif operation == 'delete':
             return _execute_delete(client, file_id)
+    except _AMBIGUOUS_STORE_EXCEPTIONS:
+        # 超时/连接中断时远程可能已经成功，必须让上层知道“结果不确定”，
+        # 不能按普通失败处理（否则会换账号重复转存）。
+        logger.exception(
+            f"[{getattr(client_class, '__name__', 'NetdiskClient')}] 接口超时或连接中断，远程结果不确定"
+        )
+        raise
     except Exception as e:
         logger.exception(f"[{getattr(client_class, '__name__', 'NetdiskClient')}] 接口调用异常: {e}")
         return (None, None, None) if operation == 'store' else False
@@ -275,20 +352,20 @@ def create_share(share_data):
         with lock:
             # Double-check: 若无 id 的搜索发现场景，先检查内存缓存或数据库是否已被其他并发线程转存成功
             if not has_id:
-                if share_url in _TRANSFERRED_URL_CACHE:
-                    cached = _TRANSFERRED_URL_CACHE[share_url]
+                cached = _get_cached_transferred_url(share_url)
+                if cached:
                     target_link = cached.get("share_link") or cached.get("share_url")
                     if target_link:
                         existing = get_resource_by_share_link(target_link)
                         if existing and existing.get("file_id"):
                             logger.info(f"并发防击穿: 资源已由其他线程转存完成 (命中内存缓存: {share_url})")
                             return cached
-                    _TRANSFERRED_URL_CACHE.pop(share_url, None)
+                    _pop_cached_transferred_url(share_url)
 
                 existing = get_resource_by_share_link(share_url)
                 if existing and existing.get("file_id") and existing.get("share_link"):
                     logger.info(f"并发防击穿: 资源已由其他线程转存入库 ({share_url})")
-                    _TRANSFERRED_URL_CACHE[share_url] = existing
+                    _cache_transferred_url(share_url, existing)
                     return existing
 
             # 3.1 前置免登录测活检查 (避免死链无效提交给网盘造成风控或报错)
@@ -312,6 +389,7 @@ def create_share(share_data):
 
             new_file_id, file_name, new_share_url = None, None, None
             used_account = None
+            used_client = None
 
             for account, client in execution_plan:
                 try:
@@ -322,8 +400,17 @@ def create_share(share_data):
                     if s_url and f_id:
                         new_file_id, file_name, new_share_url = f_id, f_name, s_url
                         used_account = account
+                        used_client = client
                         pool_mgr.report_success(account.get("id"))
                         break
+                except _AMBIGUOUS_STORE_EXCEPTIONS as amb_err:
+                    # 远程可能已经转存成功，换账号重跑会造成重复转存/重复分享，故直接终止。
+                    logger.error(
+                        f"[{netdisk_type}] 账号 {account.get('account_name')}(id={account.get('id')}) "
+                        f"转存超时或连接中断，结果不确定，停止切换账号以避免重复转存: {amb_err}"
+                    )
+                    pool_mgr.report_failure(account.get("id"), f"转存超时/连接中断，结果不确定: {amb_err}", is_fatal=False)
+                    return share_data if not has_id else None
                 except Exception as store_err:
                     err_msg = str(store_err)
                     logger.warning(
@@ -338,17 +425,43 @@ def create_share(share_data):
             if not new_share_url:
                 return share_data if not has_id else None
 
+            def _cleanup_remote_file(client_obj, remote_file_id, reason):
+                """本地持久化失败时，尽力回收刚转存到远端的文件，避免留下孤儿文件。"""
+                if not client_obj or not remote_file_id:
+                    return
+                try:
+                    _handle_netdisk_operation(
+                        client_obj.__class__, client_obj, None, operation="delete", file_id=remote_file_id
+                    )
+                    logger.warning(f"[{netdisk_type}] {reason}，已尝试回收远端文件 file_id={remote_file_id}")
+                except Exception as cleanup_err:
+                    logger.warning(
+                        f"[{netdisk_type}] {reason}，回收远端文件失败 file_id={remote_file_id}: {cleanup_err}"
+                    )
+
             # 5. 数据库同步与缓存更新
             account_id = used_account.get("id") if used_account else None
             if has_id:
-                # 场景 A: 已有记录更新链接
-                update_share_link(
+                # 场景 A: 已有记录更新链接（失败重试一次，仍失败则回收远端文件）
+                updated_ok = update_share_link(
                     share_id,
                     new_share_url,
                     new_file_id,
                     account_id=account_id,
                     origin_type="relay",
                 )
+                if not updated_ok:
+                    updated_ok = update_share_link(
+                        share_id,
+                        new_share_url,
+                        new_file_id,
+                        account_id=account_id,
+                        origin_type="relay",
+                    )
+                if not updated_ok:
+                    logger.error(f"[{netdisk_type}] 转存成功但本地记录更新失败 (id={share_id})，回滚远端文件")
+                    _cleanup_remote_file(used_client, new_file_id, "本地记录更新失败")
+                    return None
                 updated_record = {
                     'id': share_id,
                     'file_id': _normalize_file_id(new_file_id),
@@ -360,7 +473,7 @@ def create_share(share_data):
                     'is_replaced': 1,
                     'origin_type': 'relay',
                 }
-                _TRANSFERRED_URL_CACHE[share_url] = updated_record
+                _cache_transferred_url(share_url, updated_record)
                 return updated_record
             else:
                 # 场景 B: 转存新资源，统一持久化入库到 resources (我的资源管理)
@@ -382,10 +495,16 @@ def create_share(share_data):
                     'health_status': 'ok',
                 }
                 new_id = insert_resource(new_record)
-                if new_id:
-                    new_record['id'] = new_id
+                if not new_id:
+                    # 唯一键冲突等场景 insert_resource 内部已做幂等更新，这里再重试一次
+                    new_id = insert_resource(new_record)
+                if not new_id:
+                    logger.error(f"[{netdisk_type}] 转存成功但本地入库失败，回滚远端文件以避免孤儿文件")
+                    _cleanup_remote_file(used_client, new_file_id, "本地入库失败")
+                    return None
+                new_record['id'] = new_id
 
-                _TRANSFERRED_URL_CACHE[share_url] = new_record
+                _cache_transferred_url(share_url, new_record)
                 return new_record
 
     except Exception as e:
@@ -446,14 +565,7 @@ def del_share(share_data):
                 delete_by_share_link(share_url)
             if file_id:
                 delete_by_file_id(_normalize_file_id(file_id))
-            with _TRANSFER_LOCKS_MUTEX:
-                keys_to_del = [
-                    k for k, v in _TRANSFERRED_URL_CACHE.items()
-                    if k == share_url
-                    or (isinstance(v, dict) and (v.get("share_link") == share_url or v.get("share_url") == share_url or (file_id and v.get("file_id") == file_id)))
-                ]
-                for k in keys_to_del:
-                    _TRANSFERRED_URL_CACHE.pop(k, None)
+            _pop_cached_transferred_urls(share_url, file_id)
             logger.info(f"成功清理 {netdisk_type} 资源及其数据库记录 (URL={share_url}, file_id={file_id})")
             return True
         

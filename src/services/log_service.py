@@ -1,6 +1,10 @@
+import atexit
 import csv
 import io
 import logging
+import queue
+import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import has_request_context, request
@@ -13,12 +17,84 @@ from src.db.logs import (
     get_logs_summary_stats,
     get_search_analytics_stats,
     insert_system_log,
+    insert_system_logs_batch,
     query_logs_for_export,
     query_search_logs,
     query_system_logs,
 )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 异步日志写入
+# 请求线程只负责入队，由单个后台守护线程串行落库，避免每条业务日志的
+# INSERT + commit 阻塞接口响应；队列有界，积压时回退为同步写入以免丢日志。
+# ---------------------------------------------------------------------------
+_LOG_QUEUE_MAXSIZE = 10000
+_LOG_QUEUE: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=_LOG_QUEUE_MAXSIZE)
+_LOG_WRITER_THREAD: Optional[threading.Thread] = None
+_LOG_WRITER_LOCK = threading.Lock()
+# 单次最多批量落库的日志条数：积压越多收益越大，同时避免长时间占用写连接
+_LOG_WRITE_BATCH_MAX = 200
+
+
+def _log_writer_loop() -> None:
+    while True:
+        batch = [_LOG_QUEUE.get()]
+        try:
+            # 非阻塞排空当前积压，合并为一次 executemany + commit
+            while len(batch) < _LOG_WRITE_BATCH_MAX:
+                try:
+                    batch.append(_LOG_QUEUE.get_nowait())
+                except queue.Empty:
+                    break
+
+            written = insert_system_logs_batch(batch)
+            if written == 0:
+                # 批量写入失败时逐条回退，尽量保留日志（例如个别记录触发约束错误）
+                for payload in batch:
+                    try:
+                        insert_system_log(**payload)
+                    except Exception as err:  # noqa: BLE001 - 后台线程必须吞掉所有异常
+                        logger.warning(f"异步写入系统日志失败: {err}")
+        except Exception as err:  # noqa: BLE001 - 后台线程必须吞掉所有异常
+            logger.warning(f"异步批量写入系统日志失败: {err}")
+        finally:
+            for _ in batch:
+                _LOG_QUEUE.task_done()
+
+
+def _ensure_log_writer() -> None:
+    global _LOG_WRITER_THREAD
+    if _LOG_WRITER_THREAD is not None and _LOG_WRITER_THREAD.is_alive():
+        return
+    with _LOG_WRITER_LOCK:
+        if _LOG_WRITER_THREAD is not None and _LOG_WRITER_THREAD.is_alive():
+            return
+        thread = threading.Thread(target=_log_writer_loop, name="log-writer", daemon=True)
+        thread.start()
+        _LOG_WRITER_THREAD = thread
+
+
+def flush_log_queue(timeout: float = 3.0) -> bool:
+    """等待队列中已入队的日志全部落库；返回是否在超时前写完。"""
+    deadline = time.monotonic() + max(timeout, 0.0)
+    while _LOG_QUEUE.unfinished_tasks > 0:
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.002)
+    return True
+
+
+def _flush_logs_before_read() -> None:
+    """后台查询/导出日志前先冲刷队列，保证读到的数据是最新的。"""
+    try:
+        flush_log_queue()
+    except Exception as err:  # noqa: BLE001 - 冲刷失败不影响读取
+        logger.warning(f"冲刷日志队列失败: {err}")
+
+
+atexit.register(lambda: flush_log_queue(5.0))
 
 
 def get_current_client_ip() -> str:
@@ -53,16 +129,24 @@ def record_log(
     try:
         if not client_ip:
             client_ip = get_current_client_ip()
-        return insert_system_log(
-            log_type=log_type,
-            action=action,
-            query_text=query_text,
-            status_code=status_code,
-            error_message=error_message,
-            duration_ms=duration_ms,
-            result_count=result_count,
-            client_ip=client_ip,
-        )
+        _ensure_log_writer()
+        payload = {
+            "log_type": log_type,
+            "action": action,
+            "query_text": query_text,
+            "status_code": status_code,
+            "error_message": error_message,
+            "duration_ms": duration_ms,
+            "result_count": result_count,
+            "client_ip": client_ip,
+        }
+        try:
+            _LOG_QUEUE.put_nowait(payload)
+        except queue.Full:
+            # 队列积压（极端流量 / 数据库变慢）时回退同步写，优先保证日志不丢
+            logger.warning("日志队列已满，改为同步写入系统日志")
+            return insert_system_log(**payload)
+        return None
     except Exception as err:
         logger.warning(f"静默记录日志时发生异常: {err}")
         return None
@@ -82,6 +166,7 @@ def list_logs(
     """
     分页查询系统日志
     """
+    _flush_logs_before_read()
     return query_system_logs(
         page=page,
         page_size=page_size,
@@ -145,6 +230,7 @@ def get_logs_summary() -> Dict[str, Any]:
     """
     获取后台日志 KPI 统计指标
     """
+    _flush_logs_before_read()
     return get_logs_summary_stats()
 
 
@@ -161,6 +247,7 @@ def export_logs_csv(
     """
     导出系统日志为带 UTF-8 BOM 的 CSV 文本
     """
+    _flush_logs_before_read()
     logs = query_logs_for_export(
         ids=ids,
         q=q,
@@ -220,6 +307,7 @@ def list_search_logs(
     """
     分页查询搜索业务日志（Web / API）
     """
+    _flush_logs_before_read()
     return query_search_logs(
         page=page,
         page_size=page_size,
@@ -237,4 +325,5 @@ def get_search_analytics() -> Dict[str, Any]:
     """
     获取搜索业务分析指标与热词榜
     """
+    _flush_logs_before_read()
     return get_search_analytics_stats()
