@@ -1,5 +1,7 @@
 import json
+import os
 import unittest
+from unittest.mock import patch
 from app import app
 from src.db.logs import (
     insert_system_log,
@@ -243,28 +245,32 @@ class TestSystemLogs(unittest.TestCase):
         # 1. 没有上下文时返回 127.0.0.1
         self.assertEqual(get_current_client_ip(), "127.0.0.1")
 
-        # 2. X-Forwarded-For
+        # 2. 安全默认：未配置 TRUSTED_PROXIES 时忽略可伪造的转发头，仅使用 remote_addr
         with self.app.test_request_context(headers={"X-Forwarded-For": "203.0.113.195, 150.172.238.178"}):
-            self.assertEqual(get_current_client_ip(), "203.0.113.195")
+            self.assertEqual(get_current_client_ip(), "127.0.0.1")
 
-        # 3. X-Real-IP
-        with self.app.test_request_context(headers={"X-Real-IP": "198.51.100.1"}):
-            self.assertEqual(get_current_client_ip(), "198.51.100.1")
+        # 3. 测试客户端地址 127.0.0.1 配置为受信代理后，才解析各转发头
+        with patch.dict(os.environ, {"TRUSTED_PROXIES": "127.0.0.1"}, clear=False):
+            with self.app.test_request_context(headers={"X-Forwarded-For": "203.0.113.195, 150.172.238.178"}):
+                self.assertEqual(get_current_client_ip(), "203.0.113.195")
 
-        # 4. CF-Connecting-IP
-        with self.app.test_request_context(headers={"CF-Connecting-IP": "104.28.19.4"}):
-            self.assertEqual(get_current_client_ip(), "104.28.19.4")
+            with self.app.test_request_context(headers={"X-Real-IP": "198.51.100.1"}):
+                self.assertEqual(get_current_client_ip(), "198.51.100.1")
 
-        # 5. True-Client-IP
-        with self.app.test_request_context(headers={"True-Client-IP": "104.28.19.8"}):
-            self.assertEqual(get_current_client_ip(), "104.28.19.8")
+            with self.app.test_request_context(headers={"CF-Connecting-IP": "104.28.19.4"}):
+                self.assertEqual(get_current_client_ip(), "104.28.19.4")
+
+            with self.app.test_request_context(headers={"True-Client-IP": "104.28.19.8"}):
+                self.assertEqual(get_current_client_ip(), "104.28.19.8")
 
     def test_10_search_stream_client_ip_logging(self):
         test_ip = "192.0.2.123"
-        resp = self.client.get(
-            "/api/search_stream?keyword=ClientIpStreamTest",
-            headers={"X-Real-IP": test_ip},
-        )
+        # 测试客户端地址 127.0.0.1 需配置为受信代理，X-Real-IP 才会被采信
+        with patch.dict(os.environ, {"TRUSTED_PROXIES": "127.0.0.1"}, clear=False):
+            resp = self.client.get(
+                "/api/search_stream?keyword=ClientIpStreamTest",
+                headers={"X-Real-IP": test_ip},
+            )
         self.assertEqual(resp.status_code, 200)
         # 读取流以触发生成器执行与日志记录
         _ = resp.data

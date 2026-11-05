@@ -183,6 +183,60 @@ find "$BACKUP_DIR" -type f -name "pan_relay_*.db" -mtime +30 -delete
 | `RESOURCE_SEARCH_LIMIT` | `500` | 站内资源库按标题搜索单次最多返回条数，避免资源量很大时把整表命中行一次性读入内存（接口与搜索缓存本身也有上限，正常展示不受影响） |
 | `PAN_STORE_SETTLE_SECONDS` | `0.5` | 网盘转存成功后的等待秒数（用于规避上游风控）；批量入库脚本可设为 `0` 显著提速，默认值保持原有行为 |
 | `SCHEDULER_ENABLED` | `1` | 设为 `0` 时当前进程不启动任何定时任务（多实例部署时只在主实例开启） |
+| `SEARCH_PLUGIN_MAX_WORKERS` | `8` | 插件专用线程池大小，与 API/Telegram 上游池隔离，挂死插件不会占满整个搜索池 |
+| `SEARCH_CIRCUIT_BREAKER_ENABLED` | `1` | 源级熔断开关：某源连续失败 3 次后冷却 60 秒，冷却期直接跳过 |
+| `SEARCH_CIRCUIT_BREAKER_COOLDOWN_SECONDS` | `60` | 熔断基础冷却时间（秒）；half-open 探测失败后按 2 倍指数退避 |
+| `SEARCH_CIRCUIT_BREAKER_MAX_COOLDOWN_SECONDS` | `300` | 熔断冷却时间上限（秒） |
+| `SSE_MAX_CONCURRENT` | `64` | 单进程最大并发 SSE 连接数，超限返回 503 |
+| `SLOW_REQUEST_MS` | `800` | 慢请求日志阈值（毫秒） |
+| `TRUSTED_PROXIES` | 空 | 受信反向代理 IP/CIDR 白名单；未配置时不信任任何转发头 |
+| `MAX_PAGE_SIZE` / `MAX_SEARCH_LIMIT` | `100` / `100` | 分页与搜索返回条数硬上限 |
+| `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW_SECONDS` / `LOGIN_LOCKOUT_SECONDS` | `5` / `300` / `900` | 管理员登录失败锁定策略 |
+| `PAN_TRANSFER_LOCK_DIR` | `<项目>/data/locks` | 跨进程转存幂等锁目录；多容器/多 worker 部署时必须指向共享卷（NFS 需实测 flock 支持） |
+
+## 🔐 安全加固与可观测性（第二批）
+
+### 反向代理与真实客户端 IP
+
+服务默认**不信任**任何转发头（`X-Forwarded-For` / `X-Real-IP` / `CF-Connecting-IP` / `True-Client-IP`），只使用 TCP 直连地址。部署在 Nginx / CDN / 负载均衡之后时，必须配置受信代理白名单，否则限流、黑名单与访问日志拿到的都是代理 IP：
+
+```bash
+TRUSTED_PROXIES = 127.0.0.1,10.0.0.0/8
+```
+
+只有来自白名单地址的请求才会解析转发头（取第一个合法 IP），并可依据 `X-Forwarded-Proto: https` 判定为 HTTPS（影响鉴权 Cookie 的 `Secure` 标记）。Nginx 侧建议同时设置 `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`。
+
+### 输入边界
+
+| 环境变量 | 默认值 | 作用 |
+| :--- | :--- | :--- |
+| `MAX_PAGE_SIZE` | `100` | 分页接口 `page_size` 硬上限；负数 / 超大值会被钳制，避免一次导出全表 |
+| `MAX_SEARCH_LIMIT` | `100` | 聚合搜索接口 `limit` 硬上限 |
+
+分页下限固定为 1，非法参数回退默认值（`page=1`、`page_size=10`、`limit=100`）。
+
+### 登录防护与 JWT 吊销
+
+- 管理员登录按客户端 IP 限速：`LOGIN_WINDOW_SECONDS`（默认 300 秒）内失败 `LOGIN_MAX_ATTEMPTS`（默认 5）次后锁定 `LOGIN_LOCKOUT_SECONDS`（默认 900 秒），期间返回 429 与 `Retry-After`；
+- JWT 增加 `jti` 与令牌版本：登出会写入 `revoked_tokens` 吊销表；修改密码会递增 `admin_token_version`，**所有旧令牌立即失效**；每日 `cleanup_old_logs` 任务顺带清理过期吊销记录；
+- 鉴权 Cookie 统一 `HttpOnly` + `SameSite=Lax`，`COOKIE_SECURE=1` 或可信 HTTPS 代理下加 `Secure`；
+- 首次启动仍使用默认 `admin/admin123` 时会输出告警，请尽快在后台修改。
+
+### SSE 与线程模型
+
+每条 SSE 流式搜索连接会占用一个 waitress 工作线程：
+
+- `SSE_MAX_CONCURRENT`（默认 64）限制单进程同时打开的流式连接数，超限返回 503 JSON，避免长连接占满线程池导致普通请求不可用；
+- 大量用户使用流式搜索时，应同步调大 `WAITRESS_THREADS`（例如 32~64），并让普通请求走独立实例或前置队列；
+- `/healthz` 返回 `sse_active` 与 `sse_capacity` 便于观察当前流式占用。
+
+### 请求追踪与慢请求
+
+每个请求分配 `request_id`（若客户端传入合法 `X-Request-ID` 则沿用），并写入响应头 `X-Request-ID`；耗时超过 `SLOW_REQUEST_MS`（默认 800 毫秒）的请求会记录 WARNING 日志，包含方法、路径、状态码、耗时与 request_id，便于定位慢接口。
+
+### 写接口幂等
+
+`/api/v1/transfer` 支持可选幂等键：请求头 `Idempotency-Key` 或 JSON 字段 `idempotency_key`（8~128 字符）。相同键在 24 小时内重复提交会直接返回首次结果，不会重复远程转存；过期记录由每日清理任务删除。不传幂等键时行为与原来一致。
 
 ### ⚠️ 多进程部署与限流说明
 

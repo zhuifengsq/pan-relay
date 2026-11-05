@@ -1,5 +1,6 @@
 import atexit
 import concurrent.futures
+import inspect
 import json
 import logging
 import os
@@ -47,6 +48,8 @@ SEARCH_CACHE_MAX_ITEMS_PER_KEYWORD = 1000
 # 所有并发搜索请求复用同一个线程池，避免每个请求各建 3 个 ThreadPoolExecutor
 # 导致线程数随并发度线性膨胀。线程规模由 SEARCH_UPSTREAM_MAX_WORKERS 控制（默认 32），
 # 可选 SEARCH_UPSTREAM_DEADLINE_SECONDS 对单次搜索的所有上游任务设置全局截止时间（默认关闭）。
+# 插件任务不进入该池（插件内部无强制超时，挂死线程会永久占用池内线程），
+# 统一走下方独立的 _PLUGIN_EXECUTOR。
 _SEARCH_EXECUTOR_LOCK = threading.Lock()
 _SEARCH_EXECUTOR: Optional[concurrent.futures.ThreadPoolExecutor] = None
 
@@ -58,7 +61,16 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(str(os.environ.get(name, "") or default).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 _SEARCH_UPSTREAM_MAX_WORKERS = max(_env_int("SEARCH_UPSTREAM_MAX_WORKERS", 32), 4)
+# 插件专用线程池规模（默认 8，下限 2），与 API / Telegram 上游池隔离。
+_SEARCH_PLUGIN_MAX_WORKERS = max(_env_int("SEARCH_PLUGIN_MAX_WORKERS", 8), 2)
 
 
 def _get_search_executor() -> concurrent.futures.ThreadPoolExecutor:
@@ -74,6 +86,26 @@ def _get_search_executor() -> concurrent.futures.ThreadPoolExecutor:
     return _SEARCH_EXECUTOR
 
 
+# --- 插件专用上游线程池 ---
+# 插件搜索没有统一的强制超时，挂死的插件线程无法被 future.cancel() 终止。
+# 与 API / Telegram 池隔离后，插件池被占满也不会阻塞 API / TG 结果返回。
+_PLUGIN_EXECUTOR_LOCK = threading.Lock()
+_PLUGIN_EXECUTOR: Optional[concurrent.futures.ThreadPoolExecutor] = None
+
+
+def _get_plugin_executor() -> concurrent.futures.ThreadPoolExecutor:
+    global _PLUGIN_EXECUTOR
+    if _PLUGIN_EXECUTOR is not None:
+        return _PLUGIN_EXECUTOR
+    with _PLUGIN_EXECUTOR_LOCK:
+        if _PLUGIN_EXECUTOR is None:
+            _PLUGIN_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+                max_workers=_SEARCH_PLUGIN_MAX_WORKERS,
+                thread_name_prefix="search-plugin",
+            )
+    return _PLUGIN_EXECUTOR
+
+
 def _get_upstream_global_deadline_seconds() -> float:
     try:
         return max(float(str(os.environ.get("SEARCH_UPSTREAM_DEADLINE_SECONDS", "") or 0)), 0.0)
@@ -86,6 +118,211 @@ def _shutdown_search_executor() -> None:
     executor = _SEARCH_EXECUTOR
     if executor is not None:
         executor.shutdown(wait=False)
+
+
+@atexit.register
+def _shutdown_plugin_executor() -> None:
+    executor = _PLUGIN_EXECUTOR
+    if executor is not None:
+        executor.shutdown(wait=False)
+
+
+# --- 源级熔断/冷却 ---
+# 进程内线程安全实现，粒度：API 源（配置 name/标识）、Telegram 频道、插件名。
+# 同一源连续失败 3 次（异常或到 deadline 未完成）后进入冷却（默认 60s），冷却期内直接跳过；
+# 冷却结束后 half-open 只放行一个探测，成功清零恢复、失败立即再次冷却（指数退避，上限 300s）。
+# SEARCH_CIRCUIT_BREAKER_ENABLED=0 时完全关闭（行为与历史版本一致）。
+_CIRCUIT_FAILURE_THRESHOLD = 3
+_CIRCUIT_BASE_COOLDOWN_SECONDS = 60.0
+_CIRCUIT_MAX_COOLDOWN_SECONDS = 300.0
+
+
+class SourceCircuitBreaker:
+    """进程内线程安全的源级熔断器（closed / open / half-open 三态）。
+
+    - allow(key) 在冷却期返回 False；half-open 时只给一个调用方发放探测名额。
+    - record_success(key) 清零连续失败计数并关闭熔断。
+    - record_failure(key) 累计失败；达到阈值进入冷却，探测失败则立即再次冷却。
+    - release_probe(key) 在任务被取消（从未真正执行）时归还探测名额，避免名额泄漏。
+    """
+
+    def __init__(
+        self,
+        failure_threshold: int = _CIRCUIT_FAILURE_THRESHOLD,
+        cooldown_seconds: float = _CIRCUIT_BASE_COOLDOWN_SECONDS,
+        max_cooldown_seconds: float = _CIRCUIT_MAX_COOLDOWN_SECONDS,
+        clock=None,
+    ):
+        self._failure_threshold = max(int(failure_threshold), 1)
+        self._cooldown_seconds = max(float(cooldown_seconds), 0.0)
+        self._max_cooldown_seconds = max(float(max_cooldown_seconds), self._cooldown_seconds)
+        self._clock = clock or time.monotonic
+        self._lock = threading.Lock()
+        self._states: Dict[str, Dict[str, Any]] = {}
+
+    def _state(self, key: str) -> Dict[str, Any]:
+        state = self._states.get(key)
+        if state is None:
+            state = {"failures": 0, "open_until": 0.0, "open_count": 0, "probe_inflight": False}
+            self._states[key] = state
+        return state
+
+    def _cooldown_for(self, open_count: int) -> float:
+        exponent = min(max(int(open_count) - 1, 0), 8)
+        return min(self._cooldown_seconds * (2 ** exponent), self._max_cooldown_seconds)
+
+    def allow(self, key: str) -> bool:
+        """该源当前是否允许发起请求；half-open 阶段只允许一个探测。"""
+        if not key:
+            return True
+        with self._lock:
+            state = self._states.get(key)
+            if state is None or state["open_until"] <= 0:
+                return True
+            now = self._clock()
+            if now < state["open_until"]:
+                return False
+            if state["probe_inflight"]:
+                return False
+            state["probe_inflight"] = True
+            return True
+
+    def record_success(self, key: str) -> None:
+        """源调用成功（含正常返回空结果）：清零连续失败并恢复。"""
+        if not key:
+            return
+        with self._lock:
+            state = self._states.get(key)
+            if state is None:
+                return
+            recovered = state["open_until"] > 0 or state["probe_inflight"]
+            state["failures"] = 0
+            state["open_until"] = 0.0
+            state["open_count"] = 0
+            state["probe_inflight"] = False
+        if recovered:
+            logger.info("搜索源熔断已恢复: %s", key)
+
+    def record_failure(self, key: str) -> None:
+        """记录一次源失败；达到阈值或 half-open 探测失败时进入/延长冷却。"""
+        if not key:
+            return
+        opened = False
+        cooldown = 0.0
+        failures = 0
+        with self._lock:
+            state = self._state(key)
+            now = self._clock()
+            if state["open_until"] > 0:
+                # half-open 探测失败：立即再次冷却，冷却时长指数退避。
+                state["open_count"] = min(state["open_count"] + 1, 16)
+                cooldown = self._cooldown_for(state["open_count"])
+                state["open_until"] = now + cooldown
+                state["failures"] = max(state["failures"], self._failure_threshold)
+                state["probe_inflight"] = False
+                opened = True
+            else:
+                state["failures"] += 1
+                if state["failures"] >= self._failure_threshold:
+                    state["open_count"] = 1
+                    cooldown = self._cooldown_for(1)
+                    state["open_until"] = now + cooldown
+                    opened = True
+            failures = state["failures"]
+        if opened:
+            logger.warning(
+                "搜索源 %s 连续失败 %d 次，进入熔断冷却 %.0fs",
+                key,
+                failures,
+                cooldown,
+            )
+
+    def release_probe(self, key: str) -> None:
+        """任务被取消且从未执行时归还 half-open 探测名额。"""
+        if not key:
+            return
+        with self._lock:
+            state = self._states.get(key)
+            if state is not None:
+                state["probe_inflight"] = False
+
+    def reset(self) -> None:
+        """清空所有源的熔断状态（测试/运维重置用）。"""
+        with self._lock:
+            self._states.clear()
+
+    def snapshot(self, key: str) -> Optional[Dict[str, Any]]:
+        """返回某源熔断状态快照（只读，测试/诊断用）。"""
+        with self._lock:
+            state = self._states.get(key)
+            return dict(state) if state is not None else None
+
+
+_CIRCUIT_BREAKER_LOCK = threading.Lock()
+_CIRCUIT_BREAKER: Optional[SourceCircuitBreaker] = None
+
+
+def _circuit_breaker_enabled() -> bool:
+    raw = str(os.environ.get("SEARCH_CIRCUIT_BREAKER_ENABLED", "1") or "1").strip().lower()
+    return raw not in {"0", "false", "no", "off", "disabled"}
+
+
+def _get_circuit_breaker() -> SourceCircuitBreaker:
+    global _CIRCUIT_BREAKER
+    if _CIRCUIT_BREAKER is not None:
+        return _CIRCUIT_BREAKER
+    with _CIRCUIT_BREAKER_LOCK:
+        if _CIRCUIT_BREAKER is None:
+            _CIRCUIT_BREAKER = SourceCircuitBreaker(
+                failure_threshold=_CIRCUIT_FAILURE_THRESHOLD,
+                cooldown_seconds=_env_float(
+                    "SEARCH_CIRCUIT_BREAKER_COOLDOWN_SECONDS", _CIRCUIT_BASE_COOLDOWN_SECONDS
+                ),
+                max_cooldown_seconds=_env_float(
+                    "SEARCH_CIRCUIT_BREAKER_MAX_COOLDOWN_SECONDS", _CIRCUIT_MAX_COOLDOWN_SECONDS
+                ),
+            )
+    return _CIRCUIT_BREAKER
+
+
+def _source_allowed(source_key: str) -> bool:
+    if not source_key or not _circuit_breaker_enabled():
+        return True
+    return _get_circuit_breaker().allow(source_key)
+
+
+def _source_succeeded(source_key: str) -> None:
+    if not source_key or not _circuit_breaker_enabled():
+        return
+    _get_circuit_breaker().record_success(source_key)
+
+
+def _source_failed(source_key: str) -> None:
+    if not source_key or not _circuit_breaker_enabled():
+        return
+    _get_circuit_breaker().record_failure(source_key)
+
+
+def _release_source_probe(source_key: str) -> None:
+    if not source_key or not _circuit_breaker_enabled():
+        return
+    _get_circuit_breaker().release_probe(source_key)
+
+
+def _api_source_key(config) -> str:
+    """API 源熔断键：优先配置名，其次 id / url。"""
+    identifier = str(config.get("name") or config.get("id") or config.get("url") or "").strip()
+    return f"api:{identifier}" if identifier else ""
+
+
+def _telegram_source_key(channel: str) -> str:
+    channel = str(channel or "").strip()
+    return f"tg:{channel}" if channel else ""
+
+
+def _plugin_source_key(plugin) -> str:
+    name = str(getattr(plugin, "name", "") or "").strip()
+    return f"plugin:{name}" if name else ""
 
 
 def get_cached_search_items(keyword: str) -> Optional[List[SearchResultItem]]:
@@ -584,12 +821,67 @@ def process_config(config, keyword, timeout=10):
     return final_results
 
 
-def _search_plugin(plugin, keyword):
-    """执行单个插件搜索，避免一个插件失败中断其他搜索源。"""
+class _PluginSearchResult(list):
+    """插件搜索结果列表（保持 list 语义），额外用 failed 标记插件是否执行异常。
+
+    供熔断器区分“正常返回空结果”与“插件抛异常”，同时不改变 _search_plugin 对外的列表返回契约。
+    """
+
+    __slots__ = ("failed",)
+
+    def __init__(self, items=(), failed: bool = False):
+        super().__init__(items)
+        self.failed = bool(failed)
+
+
+def _plugin_search_timeout_mode(plugin) -> Optional[str]:
+    """检查 plugin.search 是否接受 timeout 参数。
+
+    返回 'keyword'（可关键字传参）、'positional'（仅位置参数）或 None（不接受）。
+    使用 inspect.signature 判断，避免向老插件传入其不认识的参数导致 TypeError。
+    """
+    search = getattr(plugin, "search", None)
+    if not callable(search):
+        return None
+    try:
+        parameters = inspect.signature(search).parameters
+    except (TypeError, ValueError):
+        return None
+    timeout_param = parameters.get("timeout")
+    if timeout_param is not None:
+        if timeout_param.kind == inspect.Parameter.POSITIONAL_ONLY:
+            return "positional"
+        return "keyword"
+    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()):
+        return "keyword"
+    return None
+
+
+def _search_plugin(plugin, keyword, timeout=None):
+    """执行单个插件搜索，避免一个插件失败中断其他搜索源。
+
+    timeout 为剩余可用时长（秒）。仅当 plugin.search 的签名接受 timeout 时才传递，
+    让插件能在自身内部提前结束请求；外层 future deadline 仍是硬性兜底。
+    """
     try:
         logger.info("插件 [%s] 开始搜索: %s", plugin.name, keyword)
-        results = []
-        for raw_item in plugin.search(keyword):
+        timeout_value = None
+        if timeout is not None:
+            try:
+                timeout_value = max(float(timeout), 0.0)
+            except (TypeError, ValueError):
+                timeout_value = None
+
+        mode = _plugin_search_timeout_mode(plugin) if timeout_value is not None else None
+        if mode == "positional":
+            raw_results = plugin.search(keyword, timeout_value)
+        elif mode == "keyword":
+            raw_results = plugin.search(keyword, timeout=timeout_value)
+        else:
+            raw_results = plugin.search(keyword)
+
+        results = _PluginSearchResult()
+        for raw_item in raw_results:
             try:
                 item = SearchResultItem.from_item(raw_item)
             except (TypeError, ValueError, IndexError):
@@ -602,7 +894,13 @@ def _search_plugin(plugin, keyword):
         return results
     except Exception as error:
         logger.error("插件 [%s] 搜索异常: %s", plugin.name, error)
-        return []
+        return _PluginSearchResult(failed=True)
+
+
+def _run_plugin_task(plugin, keyword, deadline):
+    """插件任务包装：在真正开始执行时再计算剩余超时，避免线程池排队时间挤占插件预算。"""
+    remaining = max(deadline - time.monotonic(), 0.1)
+    return _search_plugin(plugin, keyword, timeout=remaining)
 
 
 def iter_upstream_search_results(keyword):
@@ -628,23 +926,36 @@ def iter_upstream_search_results(keyword):
 
     plugins = plugin_manager.get_enabled_plugins()
 
-    # 复用全局线程池（见模块顶部说明），不再为每次搜索请求创建独立线程池。
+    # API / Telegram 复用全局上游线程池；插件走独立线程池（见模块顶部说明），
+    # 挂死的插件线程只会占满插件池，不会阻塞 API / TG 结果返回。
     executor = _get_search_executor()
+    plugin_executor = _get_plugin_executor()
     global_deadline_seconds = _get_upstream_global_deadline_seconds()
     started_at = time.monotonic()
     search_deadline = started_at + global_deadline_seconds if global_deadline_seconds > 0 else float("inf")
 
     future_types = {}
     future_deadlines = {}
+    future_source_keys = {}
+    settled_futures = set()
     try:
         if api_configs:
             for config in api_configs:
+                source_key = _api_source_key(config)
+                if not _source_allowed(source_key):
+                    logger.debug("API 源 %s 处于熔断冷却期，本次搜索跳过", source_key)
+                    continue
                 future = executor.submit(process_config, config, keyword, api_config["timeout"])
                 future_types[future] = "API"
                 future_deadlines[future] = search_deadline
+                future_source_keys[future] = source_key
 
         if tg_channels:
             for channel in tg_channels:
+                source_key = _telegram_source_key(channel)
+                if not _source_allowed(source_key):
+                    logger.debug("Telegram 频道 %s 处于熔断冷却期，本次搜索跳过", source_key)
+                    continue
                 future = executor.submit(
                     search_telegram_channel,
                     keyword,
@@ -654,22 +965,35 @@ def iter_upstream_search_results(keyword):
                 )
                 future_types[future] = f"Telegram @{channel}"
                 future_deadlines[future] = search_deadline
+                future_source_keys[future] = source_key
 
         if plugins:
+            plugin_timeout = max(float(plugin_config["timeout"]), 1.0)
             for plugin in plugins:
-                future = executor.submit(_search_plugin, plugin, keyword)
+                source_key = _plugin_source_key(plugin)
+                if not _source_allowed(source_key):
+                    logger.debug("插件源 %s 处于熔断冷却期，本次搜索跳过", source_key)
+                    continue
+                # 插件超时沿用原语义（相对搜索开始时刻），并受可选全局截止时间约束
+                plugin_deadline = min(search_deadline, started_at + plugin_timeout)
+                future = plugin_executor.submit(_run_plugin_task, plugin, keyword, plugin_deadline)
                 future_types[future] = f"插件 {plugin.name}"
-                # 插件超时沿用原语义（相对提交时刻），并受可选全局截止时间约束
-                future_deadlines[future] = min(
-                    search_deadline, started_at + max(float(plugin_config["timeout"]), 1.0)
-                )
+                future_deadlines[future] = plugin_deadline
+                future_source_keys[future] = source_key
 
         pending = set(future_types)
         while pending:
             expired = [future for future in pending if future_deadlines.get(future, float("inf")) <= time.monotonic()]
             for future in expired:
                 pending.remove(future)
-                future.cancel()
+                settled_futures.add(future)
+                source_key = future_source_keys.get(future, "")
+                if future.cancel():
+                    # 排队阶段即被取消：任务从未真正执行，不归咎于源，只归还 half-open 探测名额。
+                    _release_source_probe(source_key)
+                else:
+                    # 已开始执行但到 deadline 仍未完成：按超时失败计入熔断统计。
+                    _source_failed(source_key)
                 logger.warning(
                     "%s 搜索超时（限制：%ss），结果已丢弃",
                     future_types[future],
@@ -685,14 +1009,29 @@ def iter_upstream_search_results(keyword):
             )
             for future in done:
                 source_name = future_types[future]
+                source_key = future_source_keys.get(future, "")
+                settled_futures.add(future)
                 try:
-                    yield future.result()
+                    results = future.result()
                 except Exception as error:
+                    _source_failed(source_key)
                     logger.error("%s 搜索任务异常: %s", source_name, error)
+                    continue
+                if getattr(results, "failed", False):
+                    # 插件内部捕获了异常并返回空列表：对熔断器仍记为一次源失败。
+                    _source_failed(source_key)
+                else:
+                    _source_succeeded(source_key)
+                yield results
     finally:
         # 只取消尚未开始的任务；线程池由进程复用，此处不能 shutdown。
         for future in future_types:
+            if future in settled_futures:
+                continue
+            # 未处理完的任务（含取消/提前关闭生成器）：不算源失败，但必须归还
+            # 可能已占用的 half-open 探测名额，避免该源永远停留在“探测进行中”。
             future.cancel()
+            _release_source_probe(future_source_keys.get(future, ""))
 
 
 def search_in_database(keyword):

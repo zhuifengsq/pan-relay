@@ -28,6 +28,11 @@ from src.db.resources import (
 from src.db.credentials import get_cookie_by_cloud_name
 from src.services.link_checker import check_link, STATE_BAD, STATE_LOCKED
 from src.utils.netdisk_utils import match_netdisk_link, extract_password_from_url
+from src.utils.transfer_lock import (
+    TransferLockTimeout,
+    normalize_share_url,
+    transfer_lock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +47,9 @@ _AMBIGUOUS_STORE_EXCEPTIONS = (
 # 并发转存防击穿：固定 64 条带锁，避免按 URL 建锁导致字典无界增长
 _TRANSFER_LOCK_STRIPES = 64
 _TRANSFER_LOCKS: List[threading.Lock] = [threading.Lock() for _ in range(_TRANSFER_LOCK_STRIPES)]
+
+# 跨进程转存幂等：同一分享链接等待跨进程文件锁的上限（秒），超时按失败返回，不抛未捕获异常
+_TRANSFER_FILE_LOCK_TIMEOUT = 10.0
 
 # 临时转存结果缓存 (URL -> Result Record)，LRU + 容量上限，避免长时间运行内存无界增长
 _TRANSFERRED_URL_CACHE_MAX = 5000
@@ -350,162 +358,173 @@ def create_share(share_data):
         # 使用 URL 互斥锁防止高并发重复转存同一资源 (防击穿)
         lock = _get_transfer_lock(share_url)
         with lock:
-            # Double-check: 若无 id 的搜索发现场景，先检查内存缓存或数据库是否已被其他并发线程转存成功
-            if not has_id:
-                cached = _get_cached_transferred_url(share_url)
-                if cached:
-                    target_link = cached.get("share_link") or cached.get("share_url")
-                    if target_link:
-                        existing = get_resource_by_share_link(target_link)
-                        if existing and existing.get("file_id"):
-                            logger.info(f"并发防击穿: 资源已由其他线程转存完成 (命中内存缓存: {share_url})")
-                            return cached
-                    _pop_cached_transferred_url(share_url)
+            # 跨进程幂等：同一规范化分享链接同一时刻只允许一个进程真正执行转存；
+            # 固定「进程内锁 → 跨进程文件锁」顺序，避免与其他加锁路径形成死锁。
+            try:
+                with transfer_lock(normalize_share_url(share_url), timeout=_TRANSFER_FILE_LOCK_TIMEOUT):
+                    # Double-check: 若无 id 的搜索发现场景，先检查内存缓存或数据库是否已被其他并发线程转存成功
+                    if not has_id:
+                        cached = _get_cached_transferred_url(share_url)
+                        if cached:
+                            target_link = cached.get("share_link") or cached.get("share_url")
+                            if target_link:
+                                existing = get_resource_by_share_link(target_link)
+                                if existing and existing.get("file_id"):
+                                    logger.info(f"并发防击穿: 资源已由其他线程转存完成 (命中内存缓存: {share_url})")
+                                    return cached
+                            _pop_cached_transferred_url(share_url)
 
-                existing = get_resource_by_share_link(share_url)
-                if existing and existing.get("file_id") and existing.get("share_link"):
-                    logger.info(f"并发防击穿: 资源已由其他线程转存入库 ({share_url})")
-                    _cache_transferred_url(share_url, existing)
-                    return existing
+                        existing = get_resource_by_share_link(share_url)
+                        if existing and existing.get("file_id") and existing.get("share_link"):
+                            logger.info(f"并发防击穿: 资源已由其他线程转存入库 ({share_url})")
+                            _cache_transferred_url(share_url, existing)
+                            return existing
 
-            # 3.1 前置免登录测活检查 (避免死链无效提交给网盘造成风控或报错)
-            check_res = check_link(share_url, password=share_data.get("password"), disk_type=netdisk_type)
-            if check_res.get("state") == STATE_BAD:
+                    # 3.1 前置免登录测活检查 (避免死链无效提交给网盘造成风控或报错)
+                    check_res = check_link(share_url, password=share_data.get("password"), disk_type=netdisk_type)
+                    if check_res.get("state") == STATE_BAD:
+                        logger.warning(
+                            f"[{netdisk_type}] 转存前检测到链接已失效/违规，终止转存: {check_res.get('summary')} ({share_url})"
+                        )
+                        return None
+                    if check_res.get("state") == STATE_LOCKED:
+                        pwd = share_data.get("password") or extract_password_from_url(share_url)
+                        if not pwd:
+                            logger.warning(
+                                f"[{netdisk_type}] 转存前检测到链接需要提取码但未提供密码，终止转存 ({share_url})"
+                            )
+                            return None
+
+                    # 4. 执行转存（轮询/故障容灾切换可用账号）
+                    from src.services.system_config_service import get_transfer_target_dir
+                    target_dir_name = get_transfer_target_dir()
+
+                    new_file_id, file_name, new_share_url = None, None, None
+                    used_account = None
+                    used_client = None
+
+                    for account, client in execution_plan:
+                        try:
+                            target_pdir = _resolve_target_dir(client, target_dir_name=target_dir_name)
+                            f_id, f_name, s_url = _handle_netdisk_operation(
+                                client.__class__, client, share_url, to_pdir_path=target_pdir, operation="store"
+                            )
+                            if s_url and f_id:
+                                new_file_id, file_name, new_share_url = f_id, f_name, s_url
+                                used_account = account
+                                used_client = client
+                                pool_mgr.report_success(account.get("id"))
+                                break
+                        except _AMBIGUOUS_STORE_EXCEPTIONS as amb_err:
+                            # 远程可能已经转存成功，换账号重跑会造成重复转存/重复分享，故直接终止。
+                            logger.error(
+                                f"[{netdisk_type}] 账号 {account.get('account_name')}(id={account.get('id')}) "
+                                f"转存超时或连接中断，结果不确定，停止切换账号以避免重复转存: {amb_err}"
+                            )
+                            pool_mgr.report_failure(account.get("id"), f"转存超时/连接中断，结果不确定: {amb_err}", is_fatal=False)
+                            return share_data if not has_id else None
+                        except Exception as store_err:
+                            err_msg = str(store_err)
+                            logger.warning(
+                                f"[{netdisk_type}] 账号 {account.get('account_name')}(id={account.get('id')}) 转存失败: {err_msg}，尝试下一个备选账号"
+                            )
+                            is_fatal = any(
+                                kw in err_msg.lower()
+                                for kw in ("token", "cookie", "auth", "expire", "login", "401", "403", "banned")
+                            )
+                            pool_mgr.report_failure(account.get("id"), err_msg, is_fatal=is_fatal)
+
+                    if not new_share_url:
+                        return share_data if not has_id else None
+
+                    def _cleanup_remote_file(client_obj, remote_file_id, reason):
+                        """本地持久化失败时，尽力回收刚转存到远端的文件，避免留下孤儿文件。"""
+                        if not client_obj or not remote_file_id:
+                            return
+                        try:
+                            _handle_netdisk_operation(
+                                client_obj.__class__, client_obj, None, operation="delete", file_id=remote_file_id
+                            )
+                            logger.warning(f"[{netdisk_type}] {reason}，已尝试回收远端文件 file_id={remote_file_id}")
+                        except Exception as cleanup_err:
+                            logger.warning(
+                                f"[{netdisk_type}] {reason}，回收远端文件失败 file_id={remote_file_id}: {cleanup_err}"
+                            )
+
+                    # 5. 数据库同步与缓存更新
+                    account_id = used_account.get("id") if used_account else None
+                    if has_id:
+                        # 场景 A: 已有记录更新链接（失败重试一次，仍失败则回收远端文件）
+                        updated_ok = update_share_link(
+                            share_id,
+                            new_share_url,
+                            new_file_id,
+                            account_id=account_id,
+                            origin_type="relay",
+                        )
+                        if not updated_ok:
+                            updated_ok = update_share_link(
+                                share_id,
+                                new_share_url,
+                                new_file_id,
+                                account_id=account_id,
+                                origin_type="relay",
+                            )
+                        if not updated_ok:
+                            logger.error(f"[{netdisk_type}] 转存成功但本地记录更新失败 (id={share_id})，回滚远端文件")
+                            _cleanup_remote_file(used_client, new_file_id, "本地记录更新失败")
+                            return None
+                        updated_record = {
+                            'id': share_id,
+                            'file_id': _normalize_file_id(new_file_id),
+                            'name': share_data.get('name') or share_data.get('title') or file_name or title,
+                            'share_link': new_share_url,
+                            'share_url': new_share_url,
+                            'cloud_name': share_data.get('cloud_name') or netdisk_type,
+                            'account_id': account_id,
+                            'is_replaced': 1,
+                            'origin_type': 'relay',
+                        }
+                        _cache_transferred_url(share_url, updated_record)
+                        return updated_record
+                    else:
+                        # 场景 B: 转存新资源，统一持久化入库到 resources (我的资源管理)
+                        record_name = share_data.get('name') or share_data.get('title') or file_name or title or "未命名资源"
+                        record_cloud = share_data.get('cloud_name') or netdisk_type
+                        record_type = share_data.get('resource_type') or share_data.get('type') or ""
+                        record_remarks = share_data.get('remark') or share_data.get('remarks') or f"转存自: {share_url}"
+
+                        new_record = {
+                            'file_id': _normalize_file_id(new_file_id),
+                            'name': record_name,
+                            'share_link': new_share_url,
+                            'share_url': new_share_url,
+                            'cloud_name': record_cloud,
+                            'type': record_type,
+                            'remarks': record_remarks,
+                            'account_id': account_id,
+                            'is_replaced': 1,
+                            'health_status': 'ok',
+                        }
+                        new_id = insert_resource(new_record)
+                        if not new_id:
+                            # 唯一键冲突等场景 insert_resource 内部已做幂等更新，这里再重试一次
+                            new_id = insert_resource(new_record)
+                        if not new_id:
+                            logger.error(f"[{netdisk_type}] 转存成功但本地入库失败，回滚远端文件以避免孤儿文件")
+                            _cleanup_remote_file(used_client, new_file_id, "本地入库失败")
+                            return None
+                        new_record['id'] = new_id
+
+                        _cache_transferred_url(share_url, new_record)
+                        return new_record
+            except TransferLockTimeout:
+                # 文件锁超时说明本进程没有拿到执行权、也未执行任何远程转存，
+                # 因此统一按失败返回 None（与 check_link 失败分支一致），避免调用方误判为成功。
                 logger.warning(
-                    f"[{netdisk_type}] 转存前检测到链接已失效/违规，终止转存: {check_res.get('summary')} ({share_url})"
+                    f"[{netdisk_type}] 同一链接正在转存，请稍后重试 (等待跨进程文件锁超时: {share_url})"
                 )
                 return None
-            if check_res.get("state") == STATE_LOCKED:
-                pwd = share_data.get("password") or extract_password_from_url(share_url)
-                if not pwd:
-                    logger.warning(
-                        f"[{netdisk_type}] 转存前检测到链接需要提取码但未提供密码，终止转存 ({share_url})"
-                    )
-                    return None
-
-            # 4. 执行转存（轮询/故障容灾切换可用账号）
-            from src.services.system_config_service import get_transfer_target_dir
-            target_dir_name = get_transfer_target_dir()
-
-            new_file_id, file_name, new_share_url = None, None, None
-            used_account = None
-            used_client = None
-
-            for account, client in execution_plan:
-                try:
-                    target_pdir = _resolve_target_dir(client, target_dir_name=target_dir_name)
-                    f_id, f_name, s_url = _handle_netdisk_operation(
-                        client.__class__, client, share_url, to_pdir_path=target_pdir, operation="store"
-                    )
-                    if s_url and f_id:
-                        new_file_id, file_name, new_share_url = f_id, f_name, s_url
-                        used_account = account
-                        used_client = client
-                        pool_mgr.report_success(account.get("id"))
-                        break
-                except _AMBIGUOUS_STORE_EXCEPTIONS as amb_err:
-                    # 远程可能已经转存成功，换账号重跑会造成重复转存/重复分享，故直接终止。
-                    logger.error(
-                        f"[{netdisk_type}] 账号 {account.get('account_name')}(id={account.get('id')}) "
-                        f"转存超时或连接中断，结果不确定，停止切换账号以避免重复转存: {amb_err}"
-                    )
-                    pool_mgr.report_failure(account.get("id"), f"转存超时/连接中断，结果不确定: {amb_err}", is_fatal=False)
-                    return share_data if not has_id else None
-                except Exception as store_err:
-                    err_msg = str(store_err)
-                    logger.warning(
-                        f"[{netdisk_type}] 账号 {account.get('account_name')}(id={account.get('id')}) 转存失败: {err_msg}，尝试下一个备选账号"
-                    )
-                    is_fatal = any(
-                        kw in err_msg.lower()
-                        for kw in ("token", "cookie", "auth", "expire", "login", "401", "403", "banned")
-                    )
-                    pool_mgr.report_failure(account.get("id"), err_msg, is_fatal=is_fatal)
-
-            if not new_share_url:
-                return share_data if not has_id else None
-
-            def _cleanup_remote_file(client_obj, remote_file_id, reason):
-                """本地持久化失败时，尽力回收刚转存到远端的文件，避免留下孤儿文件。"""
-                if not client_obj or not remote_file_id:
-                    return
-                try:
-                    _handle_netdisk_operation(
-                        client_obj.__class__, client_obj, None, operation="delete", file_id=remote_file_id
-                    )
-                    logger.warning(f"[{netdisk_type}] {reason}，已尝试回收远端文件 file_id={remote_file_id}")
-                except Exception as cleanup_err:
-                    logger.warning(
-                        f"[{netdisk_type}] {reason}，回收远端文件失败 file_id={remote_file_id}: {cleanup_err}"
-                    )
-
-            # 5. 数据库同步与缓存更新
-            account_id = used_account.get("id") if used_account else None
-            if has_id:
-                # 场景 A: 已有记录更新链接（失败重试一次，仍失败则回收远端文件）
-                updated_ok = update_share_link(
-                    share_id,
-                    new_share_url,
-                    new_file_id,
-                    account_id=account_id,
-                    origin_type="relay",
-                )
-                if not updated_ok:
-                    updated_ok = update_share_link(
-                        share_id,
-                        new_share_url,
-                        new_file_id,
-                        account_id=account_id,
-                        origin_type="relay",
-                    )
-                if not updated_ok:
-                    logger.error(f"[{netdisk_type}] 转存成功但本地记录更新失败 (id={share_id})，回滚远端文件")
-                    _cleanup_remote_file(used_client, new_file_id, "本地记录更新失败")
-                    return None
-                updated_record = {
-                    'id': share_id,
-                    'file_id': _normalize_file_id(new_file_id),
-                    'name': share_data.get('name') or share_data.get('title') or file_name or title,
-                    'share_link': new_share_url,
-                    'share_url': new_share_url,
-                    'cloud_name': share_data.get('cloud_name') or netdisk_type,
-                    'account_id': account_id,
-                    'is_replaced': 1,
-                    'origin_type': 'relay',
-                }
-                _cache_transferred_url(share_url, updated_record)
-                return updated_record
-            else:
-                # 场景 B: 转存新资源，统一持久化入库到 resources (我的资源管理)
-                record_name = share_data.get('name') or share_data.get('title') or file_name or title or "未命名资源"
-                record_cloud = share_data.get('cloud_name') or netdisk_type
-                record_type = share_data.get('resource_type') or share_data.get('type') or ""
-                record_remarks = share_data.get('remark') or share_data.get('remarks') or f"转存自: {share_url}"
-
-                new_record = {
-                    'file_id': _normalize_file_id(new_file_id),
-                    'name': record_name,
-                    'share_link': new_share_url,
-                    'share_url': new_share_url,
-                    'cloud_name': record_cloud,
-                    'type': record_type,
-                    'remarks': record_remarks,
-                    'account_id': account_id,
-                    'is_replaced': 1,
-                    'health_status': 'ok',
-                }
-                new_id = insert_resource(new_record)
-                if not new_id:
-                    # 唯一键冲突等场景 insert_resource 内部已做幂等更新，这里再重试一次
-                    new_id = insert_resource(new_record)
-                if not new_id:
-                    logger.error(f"[{netdisk_type}] 转存成功但本地入库失败，回滚远端文件以避免孤儿文件")
-                    _cleanup_remote_file(used_client, new_file_id, "本地入库失败")
-                    return None
-                new_record['id'] = new_id
-
-                _cache_transferred_url(share_url, new_record)
-                return new_record
 
     except Exception as e:
         logger.exception(f"create_share 运行异常: {e}")

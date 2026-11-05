@@ -7,8 +7,6 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from flask import has_request_context, request
-
 from src.db.logs import (
     cleanup_logs_before_days,
     clear_all_logs as db_clear_all_logs,
@@ -99,17 +97,15 @@ atexit.register(lambda: flush_log_queue(5.0))
 
 def get_current_client_ip() -> str:
     """
-    从 Flask 请求上下文中获取客户端 IP 地址，兼容反向代理与 CDN (X-Forwarded-For, X-Real-IP, CF-Connecting-IP 等)
+    从 Flask 请求上下文中获取客户端 IP 地址。
+
+    只有 TRUSTED_PROXIES 配置的受信代理才会解析 X-Forwarded-For / X-Real-IP /
+    CF-Connecting-IP / True-Client-IP，否则一律返回直连对端地址，防止伪造请求头
+    绕过限流、黑名单与审计日志。
     """
-    if not has_request_context():
-        return "127.0.0.1"
-    for header in ("X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP", "True-Client-IP"):
-        val = request.headers.get(header)
-        if val:
-            ip = val.split(",")[0].strip()
-            if ip:
-                return ip
-    return request.remote_addr or "127.0.0.1"
+    from src.utils.request_utils import get_client_ip
+
+    return get_client_ip()
 
 
 def record_log(

@@ -3,6 +3,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.db.connection import Error, db_cursor, get_db_connection
+from src.utils.request_limits import clamp_page, clamp_page_size
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,14 @@ def list_resources(
     """
     后台列表分页查询 resources（供 resource_service 调用）。
     返回: (success, message, data)
+
+    即使调用方未做校验，这里也对 page/page_size 做防御性钳制：
+    page >= 1，page_size ∈ [1, MAX_PAGE_SIZE]，避免负数或超大值导致
+    除零、负 offset 或一次性拉取海量数据。
     """
+    page = clamp_page(page, default=1)
+    page_size = clamp_page_size(page_size, default=10)
+
     conn = get_db_connection()
     if not conn:
         return False, "数据库连接失败", None

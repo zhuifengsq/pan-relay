@@ -149,6 +149,8 @@ sequenceDiagram
   data: {"type": "done", "total": 12}
   ```
 
+- **并发限制**: 单进程最多同时打开 `SSE_MAX_CONCURRENT`（默认 64）条流式连接，超限返回 HTTP 503 与 JSON `{"success": false, "message": "当前流式搜索连接数已达上限，请稍后重试"}`。每条流会占用一个服务器工作线程，请结合 `WAITRESS_THREADS` 规划并发上限。
+
 ---
 
 ### 4. 步骤 2: 资源转存与替换接口 (内置测活防护)
@@ -165,6 +167,7 @@ sequenceDiagram
   - `password` (string, **可选**): 原始链接提取码 (若有)
   - `skip_check` (bool, **可选**): 是否跳过前置免登录测活检查，默认 `false`。保持 false 时，系统自动核验链接有效性与非空状态，异常时返回 HTTP 422 拦截拒绝转存
   - `api_key` (string, **可选**): 鉴权密钥 (当无法自定义 Header 时的 fallback)
+  - `idempotency_key` (string, **可选**): 幂等键（8~128 字符），也可通过请求头 `Idempotency-Key` 传入。相同 key 在 24 小时内重复请求会直接回放首次结果，避免上游重复转存；不传时行为与旧版完全一致
 
 **请求示例**:
 ```json
@@ -293,7 +296,7 @@ sequenceDiagram
 - **接口地址**: `GET /api/v1/resources`
 - **请求参数**:
   - `page` (int, 默认 1): 当前页码
-  - `page_size` (int, 默认 10): 每页数量
+  - `page_size` (int, 默认 10): 每页数量，硬上限 `MAX_PAGE_SIZE`（默认 100），负数/超大值会被钳制
   - `search` (string, 可选): 标题或链接关键字筛选
 
 **响应示例**:

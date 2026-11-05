@@ -81,6 +81,25 @@ CREATE TABLE IF NOT EXISTS system_config (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 主动登出的 JWT 吊销列表（jti）；过期记录由每日清理任务删除
+CREATE TABLE IF NOT EXISTS revoked_tokens (
+  jti TEXT PRIMARY KEY,
+  expires_at TEXT NOT NULL,
+  revoked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires ON revoked_tokens(expires_at);
+
+-- 写接口幂等键（/api/v1/transfer 等），过期记录由每日清理任务删除
+CREATE TABLE IF NOT EXISTS request_idempotency (
+  idem_key TEXT PRIMARY KEY,
+  response_json TEXT NOT NULL,
+  status_code INTEGER NOT NULL,
+  created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_request_idempotency_created ON request_idempotency(created_at);
+
 CREATE TABLE IF NOT EXISTS temp_share (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   original_url TEXT NOT NULL,

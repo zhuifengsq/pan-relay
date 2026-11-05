@@ -32,6 +32,9 @@ from src.services.system_config_service import (
 from src.services.security_service import check_request_security, IPConcurrencyGuard
 from src.services.log_service import record_log, get_current_client_ip
 from src.utils.netdisk_utils import FRONTEND_DISPLAY_NETDISK_OPTIONS, parse_netdisk_names
+from src.utils.request_idempotency import get_cached_response, save_response
+from src.utils.request_limits import clamp_page, clamp_page_size, clamp_search_limit
+from src.utils.stream_guard import acquire_stream_slot, release_stream_slot
 
 
 logger = logging.getLogger(__name__)
@@ -66,14 +69,18 @@ def api_status():
 def _resolve_search_api_options(req):
     keyword = req.args.get("keyword", "", type=str).strip()
 
-    # 结果上限与防护锁
+    # 结果上限与防护锁：锁定后台配置时不得超过配置值；无论是否锁定，
+    # 最终 limit 都必须落在 [1, MAX_SEARCH_LIMIT] 内，避免超大/负数条数造成资源消耗。
     default_limit = get_search_api_limit()
     limit_lock = get_search_api_limit_lock()
     req_limit = req.args.get("limit", None, type=int)
-    if limit_lock:
-        limit = min(req_limit, default_limit) if (req_limit is not None and req_limit > 0) else default_limit
+    if req_limit is not None and req_limit <= 0:
+        req_limit = None
+    if limit_lock and req_limit is not None:
+        limit = min(req_limit, default_limit)
     else:
-        limit = req_limit if (req_limit is not None and req_limit > 0) else default_limit
+        limit = req_limit if req_limit is not None else default_limit
+    limit = clamp_search_limit(limit, default=clamp_search_limit(default_limit))
 
     raw_clouds = req.args.getlist("cloud_name") + req.args.getlist("cloud_names")
     target_clouds = parse_netdisk_names(raw_clouds)
@@ -94,6 +101,27 @@ def _resolve_search_api_options(req):
         "target_clouds": target_clouds,
         "scope": scope,
     }
+
+
+IDEMPOTENCY_KEY_MIN_LENGTH = 8
+IDEMPOTENCY_KEY_MAX_LENGTH = 128
+
+
+def _extract_idempotency_key(req, data):
+    """提取转存接口的幂等键（Idempotency-Key 请求头或 body 的 idempotency_key）。
+
+    长度不在 [8, 128] 区间、或类型不是字符串时返回空字符串，等价于未传幂等键，
+    此时接口行为与旧版本完全一致。
+    """
+    raw = req.headers.get("Idempotency-Key")
+    if raw is None and isinstance(data, dict):
+        raw = data.get("idempotency_key")
+    if not isinstance(raw, str):
+        return ""
+    key = raw.strip()
+    if IDEMPOTENCY_KEY_MIN_LENGTH <= len(key) <= IDEMPOTENCY_KEY_MAX_LENGTH:
+        return key
+    return ""
 
 
 @api_v1_bp.route("/search", methods=["GET"])
@@ -239,18 +267,46 @@ def api_search_stream():
 
     client_ip = get_current_client_ip()
 
-    def generate_events():
-        with IPConcurrencyGuard(client_ip):
-            for payload in generate_search_stream_events(
-                keyword,
-                action="search.api.v1",
-                limit=limit,
-                target_clouds=target_clouds,
-                scope=scope,
-            ):
-                yield f"data: {payload}\n\n"
+    # SSE 长连接会独占一个服务端工作线程，超限直接 503 拒绝，避免拖垮普通请求。
+    if not acquire_stream_slot():
+        return jsonify({
+            "success": False,
+            "message": "当前流式搜索连接数已达上限，请稍后重试",
+        }), 503
 
-    response = Response(stream_with_context(generate_events()), mimetype="text/event-stream")
+    released = {"done": False}
+
+    def release_once():
+        # 生成器正常结束、抛异常、客户端中断以及响应 close 都会走到这里，
+        # 用标记保证同一个名额只归还一次。
+        if not released["done"]:
+            released["done"] = True
+            release_stream_slot()
+
+    def generate_events():
+        try:
+            with IPConcurrencyGuard(client_ip):
+                for payload in generate_search_stream_events(
+                    keyword,
+                    action="search.api.v1",
+                    limit=limit,
+                    target_clouds=target_clouds,
+                    scope=scope,
+                ):
+                    yield f"data: {payload}\n\n"
+        finally:
+            release_once()
+
+    try:
+        response = Response(stream_with_context(generate_events()), mimetype="text/event-stream")
+    except Exception:
+        # 响应构造失败（未进入流式迭代）时也要归还名额。
+        release_once()
+        raise
+
+    # 响应结束（含生成器未被消费就被 close 的极端情况）兜底释放。
+    response.call_on_close(release_once)
+    # SSE 不应被浏览器/反向代理缓存或缓冲，否则首条结果会被延迟。
     response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Accel-Buffering"] = "no"
     return response
@@ -298,6 +354,22 @@ def api_transfer():
                 "message": "API Key 校验失败，缺乏转存调用的有效授权",
             }), 401
 
+    # 幂等键命中时直接回放首次结果（放在鉴权之后，避免未授权者探测缓存内容）。
+    idempotency_key = _extract_idempotency_key(request, data)
+    if idempotency_key:
+        cached = get_cached_response(idempotency_key)
+        if cached:
+            cached_payload, cached_status = cached
+            record_log(
+                log_type="api",
+                action="api.v1.transfer.idempotent",
+                query_text=url,
+                status_code=cached_status,
+                duration_ms=int((time.time() - start_time) * 1000),
+                result_count=1,
+            )
+            return jsonify(cached_payload), cached_status
+
     if not url:
         record_log(
             log_type="api",
@@ -323,12 +395,16 @@ def api_transfer():
                 error_message=f"源链接已失效或为空: {chk.get('summary')}",
                 duration_ms=duration_ms,
             )
-            return jsonify({
+            payload = {
                 "success": False,
                 "code": "LINK_INVALID",
                 "message": f"源链接已失效、被下架或内容为空: {chk.get('summary')}",
                 "data": chk,
-            }), 422
+            }
+            # 链接失效是明确且可复现的业务失败，允许幂等缓存。
+            if idempotency_key:
+                save_response(idempotency_key, payload, 422)
+            return jsonify(payload), 422
 
         if chk.get("state") == STATE_LOCKED and not password:
             duration_ms = int((time.time() - start_time) * 1000)
@@ -340,12 +416,16 @@ def api_transfer():
                 error_message="源链接需要提取码",
                 duration_ms=duration_ms,
             )
-            return jsonify({
+            payload = {
                 "success": False,
                 "code": "LINK_LOCKED",
                 "message": "源链接需要提取码，请在请求体中提供 password 参数",
                 "data": chk,
-            }), 422
+            }
+            # 缺少提取码同样是明确且可复现的业务失败，允许幂等缓存。
+            if idempotency_key:
+                save_response(idempotency_key, payload, 422)
+            return jsonify(payload), 422
 
     try:
         resolved = resolve_view_url(title=title, original_url=url, netdisk_name=netdisk_name)
@@ -359,11 +439,15 @@ def api_transfer():
             duration_ms=duration_ms,
             result_count=1,
         )
-        return jsonify({
+        payload = {
             "success": True,
             "message": "资源转换与链接生成成功",
             "data": resolved,
-        })
+        }
+        # 仅缓存真正的成功结果；mode=error 属于异常兜底路径，不缓存以便调用方重试。
+        if idempotency_key and resolved.get("mode") != "error":
+            save_response(idempotency_key, payload, 200)
+        return jsonify(payload)
     except Exception as exc:
         duration_ms = int((time.time() - start_time) * 1000)
         record_log(
@@ -426,8 +510,10 @@ def api_list_resources():
     """
     查看库内已保存的转存资源列表接口
     """
-    page = request.args.get("page", 1, type=int)
-    page_size = request.args.get("page_size", 10, type=int)
+    # 对外 API 必须钳制分页参数：page >= 1，page_size ∈ [1, MAX_PAGE_SIZE]，
+    # 非法值回退默认值，避免负数 offset 或超大 LIMIT 拖垮数据库。
+    page = clamp_page(request.args.get("page", 1, type=int), default=1)
+    page_size = clamp_page_size(request.args.get("page_size", 10, type=int), default=10)
     search = request.args.get("search", "", type=str)
 
     success, message, data = list_resources(page=page, page_size=page_size, search=search)

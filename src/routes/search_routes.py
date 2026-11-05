@@ -28,6 +28,8 @@ from src.services.log_service import record_log, get_current_client_ip
 from src.services.temp_share_service import cleanup_expired_temp_shares, resolve_view_url
 from src.utils.auth_utils import token_required
 from src.utils.netdisk_utils import FRONTEND_DISPLAY_NETDISK_OPTIONS, parse_netdisk_names
+from src.utils.request_limits import clamp_search_limit
+from src.utils.stream_guard import acquire_stream_slot, release_stream_slot
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +58,26 @@ def search_stream():
         return jsonify({"error": err_msg}), status_code
 
     client_ip = get_current_client_ip()
-    logger.info(f"用户 SSE 搜索关键词: {keyword} (IP: {client_ip})")
 
-    def generate_events():
-        with IPConcurrencyGuard(client_ip):
-            for payload in generate_search_stream_events(keyword, action="search.web"):
-                yield f"data: {payload}\n\n"
+    # 每条 SSE 长连接占用一个服务端工作线程，超限直接拒绝，避免拖垮普通请求
+    if not acquire_stream_slot():
+        return jsonify({"error": "当前流式搜索连接数已达上限，请稍后重试"}), 503
 
-    response = Response(stream_with_context(generate_events()), mimetype="text/event-stream")
+    try:
+        logger.info(f"用户 SSE 搜索关键词: {keyword} (IP: {client_ip})")
+
+        def generate_events():
+            with IPConcurrencyGuard(client_ip):
+                for payload in generate_search_stream_events(keyword, action="search.web"):
+                    yield f"data: {payload}\n\n"
+
+        response = Response(stream_with_context(generate_events()), mimetype="text/event-stream")
+    except Exception:
+        release_stream_slot()
+        raise
+
+    # 响应结束（含客户端断开）时释放名额
+    response.call_on_close(release_stream_slot)
     # SSE 不应被浏览器/反向代理缓存或缓冲，否则首条结果会被延迟
     response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Accel-Buffering"] = "no"
@@ -92,7 +106,7 @@ def search_api():
         return jsonify({"success": False, "message": err_msg}), status_code
 
     client_ip = get_current_client_ip()
-    limit = request.args.get("limit", 100, type=int)
+    limit = clamp_search_limit(request.args.get("limit", 100, type=int))
     raw_clouds = request.args.getlist("cloud_name") + request.args.getlist("cloud_names")
     target_clouds = parse_netdisk_names(raw_clouds)
 

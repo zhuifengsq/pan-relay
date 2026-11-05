@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import patch
 
@@ -23,8 +24,9 @@ class TestSecurityService(unittest.TestCase):
         cfg = get_security_config()
         self.assertIn("182.149.235.13", cfg["ip_blacklist"])
 
-        # 模拟 182.149.235.13 请求
-        with app.test_request_context('/api/search_stream?keyword=测试资源', headers={'X-Forwarded-For': '182.149.235.13'}):
+        # 模拟 182.149.235.13 请求（仅受信代理才可提供 X-Forwarded-For，测试客户端地址为 127.0.0.1）
+        with patch.dict(os.environ, {"TRUSTED_PROXIES": "127.0.0.1"}, clear=False), \
+                app.test_request_context('/api/search_stream?keyword=测试资源', headers={'X-Forwarded-For': '182.149.235.13'}):
             allowed, msg, status_code = check_request_security()
             self.assertFalse(allowed)
             self.assertEqual(status_code, 403)
@@ -32,7 +34,8 @@ class TestSecurityService(unittest.TestCase):
 
         # 解封 IP
         remove_ip_from_blacklist("182.149.235.13")
-        with app.test_request_context('/api/search_stream?keyword=测试资源', headers={'X-Forwarded-For': '182.149.235.13'}):
+        with patch.dict(os.environ, {"TRUSTED_PROXIES": "127.0.0.1"}, clear=False), \
+                app.test_request_context('/api/search_stream?keyword=测试资源', headers={'X-Forwarded-For': '182.149.235.13'}):
             allowed, msg, status_code = check_request_security()
             self.assertTrue(allowed)
 
@@ -53,7 +56,9 @@ class TestSecurityService(unittest.TestCase):
         save_security_config({"min_keyword_length": 2, "rate_limit_per_minute": 10, "max_concurrent_searches": 1, "ip_blacklist": []})
         
         ip = "10.0.0.1"
-        with app.test_request_context('/api/search_stream?keyword=测试资源', headers={'X-Forwarded-For': ip}):
+        # 测试客户端地址为 127.0.0.1，只有把它配置为受信代理才会解析 X-Forwarded-For
+        with patch.dict(os.environ, {"TRUSTED_PROXIES": "127.0.0.1"}, clear=False), \
+                app.test_request_context('/api/search_stream?keyword=测试资源', headers={'X-Forwarded-For': ip}):
             # 开启第 1 个并发搜索
             with IPConcurrencyGuard(ip):
                 # 尝试开启第 2 个并发搜索

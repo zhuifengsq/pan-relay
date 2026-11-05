@@ -155,6 +155,16 @@ def _migrate_schema_columns(conn: sqlite3.Connection):
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_res_requests_created ON resource_requests(created_at DESC);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_res_requests_status ON resource_requests(status);")
+
+        # 4. JWT 主动吊销表（登出/改密后旧令牌立即失效）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS revoked_tokens (
+              jti TEXT PRIMARY KEY,
+              expires_at TEXT NOT NULL,
+              revoked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires ON revoked_tokens(expires_at);")
     except Exception as e:
         logger.warning(f"表结构字段校验异常: {e}")
 

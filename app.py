@@ -1,12 +1,14 @@
 import json
 import logging
 import os
+import time
+import uuid
 from datetime import datetime
 from src.configs.logging_setup import setup_logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
-from flask import Flask, render_template, jsonify, request, redirect, url_for, send_from_directory
+from flask import Flask, render_template, jsonify, request, redirect, url_for, send_from_directory, g
 from src.routes.api_config_routes import api_config_bp
 from src.routes.search_routes import search_bp
 from src.routes.resource_routes import resources_bp
@@ -133,14 +135,9 @@ start_scheduler()
 @app.context_processor
 def inject_login_status():
     token = request.cookies.get('token')
-    is_logged_in = False
-    try:
-        if token:
-            import jwt
-            jwt.decode(token, app.secret_key, algorithms=['HS256'])
-            is_logged_in = True
-    except Exception:
-        pass
+    from src.utils.auth_utils import is_token_valid
+
+    is_logged_in = bool(token) and is_token_valid(token)
 
     is_default_pwd = False
     admin_name = 'Admin'
@@ -172,6 +169,38 @@ def inject_login_status():
         'enable_hot_searches': is_hot_searches_enabled(),
         'hot_search_words': get_hot_search_words(),
     }
+
+
+@app.before_request
+def attach_request_context():
+    """为每个请求分配 request_id 并记录开始时间，便于日志串联与慢请求排查。"""
+    g.request_id = (request.headers.get("X-Request-ID") or uuid.uuid4().hex)[:64]
+    g.request_started_at = time.perf_counter()
+
+
+@app.after_request
+def log_slow_request(response):
+    """回写 X-Request-ID；超过 SLOW_REQUEST_MS（默认 800ms）记录慢请求日志。"""
+    request_id = getattr(g, "request_id", "")
+    if request_id:
+        response.headers["X-Request-ID"] = request_id
+    started_at = getattr(g, "request_started_at", None)
+    if started_at is not None:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        try:
+            slow_threshold_ms = float(os.environ.get("SLOW_REQUEST_MS", "800"))
+        except (TypeError, ValueError):
+            slow_threshold_ms = 800.0
+        if elapsed_ms >= slow_threshold_ms:
+            logger.warning(
+                "慢请求 %s %s -> %s 耗时 %.1fms request_id=%s",
+                request.method,
+                request.full_path[:200],
+                response.status_code,
+                elapsed_ms,
+                request_id,
+            )
+    return response
 
 
 @app.before_request
@@ -302,9 +331,18 @@ def healthz():
         logger.warning(f"健康检查数据库探活失败: {exc}")
 
     healthy = db_status == "ok"
+    try:
+        from src.utils.stream_guard import active_streams, max_concurrent_streams
+
+        sse_active = active_streams()
+        sse_capacity = max_concurrent_streams()
+    except Exception:  # noqa: BLE001
+        sse_active, sse_capacity = 0, 0
     payload = {
         "status": "ok" if healthy else "degraded",
         "db": db_status,
+        "sse_active": sse_active,
+        "sse_capacity": sse_capacity,
         "time": datetime.now().isoformat(timespec="seconds"),
     }
     return jsonify(payload), (200 if healthy else 503)

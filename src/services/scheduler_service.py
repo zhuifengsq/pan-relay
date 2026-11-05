@@ -207,6 +207,26 @@ def scheduled_log_cleanup_job():
             logger.info(f"系统日志保留策略清理完成（保留 {retention_days} 天）: 清理 {count} 条")
         else:
             logger.warning(f"系统日志保留策略清理失败: {message}")
+
+        # 顺带清理已过期的 JWT 吊销记录，避免表无限增长
+        try:
+            from src.services.admin_token_service import cleanup_expired_revoked_tokens
+
+            revoked_count = cleanup_expired_revoked_tokens()
+            if revoked_count:
+                logger.info(f"已清理过期 JWT 吊销记录: {revoked_count} 条")
+        except Exception as revoke_exc:  # noqa: BLE001
+            logger.warning(f"清理 JWT 吊销记录失败: {revoke_exc}")
+
+        # 清理过期请求幂等记录（/api/v1/transfer 等）
+        try:
+            from src.utils.request_idempotency import cleanup_expired_idempotency
+
+            idem_count = cleanup_expired_idempotency()
+            if idem_count:
+                logger.info(f"已清理过期请求幂等记录: {idem_count} 条")
+        except Exception as idem_exc:  # noqa: BLE001
+            logger.warning(f"清理请求幂等记录失败: {idem_exc}")
     except Exception as exc:
         logger.error(f"系统日志保留策略清理异常: {exc}")
 
